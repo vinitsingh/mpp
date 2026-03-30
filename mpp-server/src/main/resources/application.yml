@@ -1,0 +1,33 @@
+server:
+  port: 8402
+
+spring:
+  r2dbc:
+    url: r2dbc:h2:mem:///mppdb;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+
+mpp:
+  realm: "localhost:8402"
+  challenge:
+    expiry-seconds: 300          # 5 minutes
+    hmac-secret: "change-me-in-production-use-env-var"
+  payment-methods:
+    - name: "internal"           # built-in ledger
+      enabled: true
+    - name: "stripe"
+      enabled: false
+      api-key: "${STRIPE_API_KEY:}"
+    - name: "card"
+      enabled: false
+  receipts:
+    enabled: true
+  discovery:
+    enabled: true
+
+logging:
+  level:
+    dev.mpp: DEBUG

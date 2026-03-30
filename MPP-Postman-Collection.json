@@ -1,0 +1,522 @@
+{
+  "info": {
+    "name": "MPP - Machine Payments Protocol",
+    "description": "Complete Postman collection for testing the MPP Java Spring Boot server.\n\nFlow: Discovery → 402 Challenge → Build Credential → Pay & Get Resource → Replay Protection\n\nRun requests in order (1→2→3→4→5→6→7→8).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8402" },
+    { "key": "agent_id", "value": "agent-001" },
+    { "key": "challenge_id", "value": "" },
+    { "key": "challenge_realm", "value": "" },
+    { "key": "challenge_method", "value": "" },
+    { "key": "challenge_intent", "value": "" },
+    { "key": "challenge_request", "value": "" },
+    { "key": "challenge_expires", "value": "" },
+    { "key": "credential_b64", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Phase 1: Discovery",
+      "item": [
+        {
+          "name": "1. GET /.well-known/mpp",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/.well-known/mpp",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Discovery returns 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Has protocol info', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.protocol).to.eql('MPP');",
+                  "    pm.expect(json.methods).to.be.an('array');",
+                  "    pm.expect(json.intents).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 - Discovery document",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"protocol\": \"MPP\",\n  \"version\": \"0.1.0\",\n  \"realm\": \"localhost:8402\",\n  \"methods\": [\"internal\"],\n  \"intents\": [\"charge\", \"session\"],\n  \"services_url\": \"/mpp/discovery/services\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "1b. GET /mpp/discovery/services",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/mpp/discovery/services",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ]
+          },
+          "response": [
+            {
+              "name": "200 - Service catalog",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" }
+              ],
+              "body": "{\n  \"realm\": \"localhost:8402\",\n  \"services\": [\n    {\n      \"path\": \"/api/v1/generate\",\n      \"amount\": \"100\",\n      \"currency\": \"usd\",\n      \"method\": \"internal\",\n      \"intent\": \"charge\",\n      \"description\": \"Text generation - $1.00 per request\"\n    },\n    {\n      \"path\": \"/api/v1/search\",\n      \"amount\": \"10\",\n      \"currency\": \"usd\",\n      \"method\": \"internal\",\n      \"intent\": \"charge\",\n      \"description\": \"Web search - $0.10 per query\"\n    },\n    {\n      \"path\": \"/api/v1/image\",\n      \"amount\": \"500\",\n      \"currency\": \"usd\",\n      \"method\": \"internal\",\n      \"intent\": \"charge\",\n      \"description\": \"Image generation - $5.00 per image\"\n    },\n    {\n      \"path\": \"/api/v1/data\",\n      \"amount\": \"50\",\n      \"currency\": \"usd\",\n      \"method\": \"internal\",\n      \"intent\": \"charge\",\n      \"description\": \"Data API - $0.50 per request\"\n    }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 2: 402 Challenge",
+      "item": [
+        {
+          "name": "2. GET /api/v1/search (no payment → 402)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/search?q=hello",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "search"],
+              "query": [
+                { "key": "q", "value": "hello" }
+              ]
+            },
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 402 Payment Required', function () {",
+                  "    pm.response.to.have.status(402);",
+                  "});",
+                  "",
+                  "pm.test('Has WWW-Authenticate header', function () {",
+                  "    pm.response.to.have.header('WWW-Authenticate');",
+                  "});",
+                  "",
+                  "pm.test('Has Cache-Control: no-store', function () {",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.eql('no-store');",
+                  "});",
+                  "",
+                  "// Parse challenge from WWW-Authenticate header",
+                  "var authHeader = pm.response.headers.get('WWW-Authenticate');",
+                  "console.log('WWW-Authenticate:', authHeader);",
+                  "",
+                  "var idMatch = authHeader.match(/id=\"([^\"]+)\"/);",
+                  "var realmMatch = authHeader.match(/realm=\"([^\"]+)\"/);",
+                  "var methodMatch = authHeader.match(/method=\"([^\"]+)\"/);",
+                  "var intentMatch = authHeader.match(/intent=\"([^\"]+)\"/);",
+                  "var requestMatch = authHeader.match(/request=\"([^\"]+)\"/);",
+                  "var expiresMatch = authHeader.match(/expires=\"([^\"]+)\"/);",
+                  "",
+                  "if (idMatch) pm.collectionVariables.set('challenge_id', idMatch[1]);",
+                  "if (realmMatch) pm.collectionVariables.set('challenge_realm', realmMatch[1]);",
+                  "if (methodMatch) pm.collectionVariables.set('challenge_method', methodMatch[1]);",
+                  "if (intentMatch) pm.collectionVariables.set('challenge_intent', intentMatch[1]);",
+                  "if (requestMatch) pm.collectionVariables.set('challenge_request', requestMatch[1]);",
+                  "if (expiresMatch) pm.collectionVariables.set('challenge_expires', expiresMatch[1]);",
+                  "",
+                  "console.log('Challenge ID:', idMatch ? idMatch[1] : 'NOT FOUND');",
+                  "console.log('Expires:', expiresMatch ? expiresMatch[1] : 'NOT FOUND');"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "402 - Payment Required with Challenge",
+              "status": "Payment Required",
+              "code": 402,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" },
+                { "key": "Cache-Control", "value": "no-store" },
+                { "key": "WWW-Authenticate", "value": "Payment id=\"aB3xYz...\", realm=\"localhost:8402\", method=\"internal\", intent=\"charge\", expires=\"2026-03-29T16:05:00Z\", request=\"eyJhbW91bnQiOiIxMCIsImN1cnJlbmN5IjoidXNkIiwicmVjaXBpZW50Ijoic2VydmljZS1hY2NvdW50LTEifQ\"" }
+              ],
+              "body": "{\n  \"type\": \"https://paymentauth.org/problems/payment-required\",\n  \"title\": \"Payment Required\",\n  \"status\": 402,\n  \"detail\": \"Web search - $0.10 per query\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 3: Build Credential & Pay",
+      "item": [
+        {
+          "name": "3. Build credential (Pre-request script builds it)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/search?q=hello",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "search"],
+              "query": [
+                { "key": "q", "value": "hello" }
+              ]
+            },
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Payment {{credential_b64}}" }
+            ]
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Build the credential JSON from challenge variables",
+                  "var credential = {",
+                  "    challenge: {",
+                  "        id: pm.collectionVariables.get('challenge_id'),",
+                  "        realm: pm.collectionVariables.get('challenge_realm'),",
+                  "        method: pm.collectionVariables.get('challenge_method'),",
+                  "        intent: pm.collectionVariables.get('challenge_intent'),",
+                  "        request: pm.collectionVariables.get('challenge_request'),",
+                  "        expires: pm.collectionVariables.get('challenge_expires')",
+                  "    },",
+                  "    source: pm.collectionVariables.get('agent_id'),",
+                  "    payload: {",
+                  "        token: pm.collectionVariables.get('agent_id') + '-auth-token'",
+                  "    }",
+                  "};",
+                  "",
+                  "console.log('Credential JSON:', JSON.stringify(credential, null, 2));",
+                  "",
+                  "// Base64url encode",
+                  "var jsonStr = JSON.stringify(credential);",
+                  "var b64 = btoa(jsonStr)",
+                  "    .replace(/\\+/g, '-')",
+                  "    .replace(/\\//g, '_')",
+                  "    .replace(/=+$/, '');",
+                  "",
+                  "pm.collectionVariables.set('credential_b64', b64);",
+                  "console.log('Credential B64:', b64);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 200 OK (payment accepted)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Has Payment-Receipt header', function () {",
+                  "    pm.response.to.have.header('Payment-Receipt');",
+                  "});",
+                  "",
+                  "pm.test('Has search results', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.query).to.eql('hello');",
+                  "    pm.expect(json.results).to.be.an('array');",
+                  "});",
+                  "",
+                  "// Decode and log receipt",
+                  "var receiptB64 = pm.response.headers.get('Payment-Receipt');",
+                  "if (receiptB64) {",
+                  "    try {",
+                  "        var padded = receiptB64 + '=='.slice(0, (4 - receiptB64.length % 4) % 4);",
+                  "        var receiptJson = atob(padded.replace(/-/g, '+').replace(/_/g, '/'));",
+                  "        console.log('Receipt:', receiptJson);",
+                  "    } catch(e) {",
+                  "        console.log('Receipt (raw):', receiptB64);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 - Payment accepted, resource delivered",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" },
+                { "key": "Cache-Control", "value": "private" },
+                { "key": "Payment-Receipt", "value": "eyJjaGFsbGVuZ2VJZCI6ImFCM3hZei4uLiIsIm1ldGhvZCI6ImludGVybmFsIiwicmVmZXJlbmNlIjoiaW50ZXJuYWwtYWJjMTIzIiwic2V0dGxlbWVudCI6eyJhbW91bnQiOiIxMCIsImN1cnJlbmN5IjoidXNkIn0sInN0YXR1cyI6InN1Y2Nlc3MiLCJ0aW1lc3RhbXAiOiIyMDI2LTAzLTI5VDE2OjAwOjAwWiJ9" }
+              ],
+              "body": "{\n  \"query\": \"hello\",\n  \"results\": [\n    {\n      \"title\": \"Result 1 for: hello\",\n      \"url\": \"https://example.com/1\"\n    },\n    {\n      \"title\": \"Result 2 for: hello\",\n      \"url\": \"https://example.com/2\"\n    }\n  ],\n  \"timestamp\": \"2026-03-29T16:00:05Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 4: Replay Protection",
+      "item": [
+        {
+          "name": "4. Replay same credential (→ 402 rejected)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/search?q=hello",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "search"],
+              "query": [
+                { "key": "q", "value": "hello" }
+              ]
+            },
+            "header": [
+              { "key": "Accept", "value": "application/json" },
+              { "key": "Authorization", "value": "Payment {{credential_b64}}" }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Replay returns 402', function () {",
+                  "    pm.response.to.have.status(402);",
+                  "});",
+                  "",
+                  "pm.test('Error is invalid-challenge', function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.type).to.include('invalid-challenge');",
+                  "});",
+                  "",
+                  "pm.test('Gets fresh challenge', function () {",
+                  "    pm.response.to.have.header('WWW-Authenticate');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "402 - Replay rejected with fresh challenge",
+              "status": "Payment Required",
+              "code": 402,
+              "header": [
+                { "key": "Content-Type", "value": "application/json" },
+                { "key": "Cache-Control", "value": "no-store" },
+                { "key": "WWW-Authenticate", "value": "Payment id=\"newChallenge123\", realm=\"localhost:8402\", method=\"internal\", intent=\"charge\", expires=\"2026-03-29T16:10:00Z\", request=\"eyJhbW91bnQiOiIxMCIsImN1cnJlbmN5IjoidXNkIn0\"" }
+              ],
+              "body": "{\n  \"type\": \"https://paymentauth.org/problems/invalid-challenge\",\n  \"title\": \"Invalid Challenge\",\n  \"status\": 402,\n  \"detail\": \"Challenge already consumed (replay detected)\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin APIs",
+      "item": [
+        {
+          "name": "5. Check agent balance",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/admin/accounts/{{agent_id}}/balance",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns balance', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.source).to.eql(pm.collectionVariables.get('agent_id'));",
+                  "    pm.expect(json.balance).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 - Agent balance",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"source\": \"agent-001\",\n  \"balance\": \"9990\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "6. Credit agent account",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/admin/accounts/{{agent_id}}/credit",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": \"5000\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Credit succeeds', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.credited).to.eql('5000');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 - Account credited",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"source\": \"agent-001\",\n  \"credited\": \"5000\",\n  \"balance\": \"14990\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "7. Register a paid resource",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/admin/resources",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"path\": \"/api/v1/translate\",\n  \"amount\": \"25\",\n  \"currency\": \"usd\",\n  \"recipient\": \"service-account-1\",\n  \"method\": \"internal\",\n  \"intent\": \"charge\",\n  \"description\": \"Translation API - $0.25 per request\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Resource registered', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('registered');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "201 - Resource registered",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"path\": \"/api/v1/translate\",\n  \"pricing\": {\n    \"amount\": \"25\",\n    \"currency\": \"usd\",\n    \"recipient\": \"service-account-1\",\n    \"method\": \"internal\",\n    \"intent\": \"charge\",\n    \"description\": \"Translation API - $0.25 per request\"\n  },\n  \"status\": \"registered\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "8. List all paid resources",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/admin/resources",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ]
+          },
+          "response": [
+            {
+              "name": "200 - All resources",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"/api/v1/generate\": {\n    \"amount\": \"100\",\n    \"currency\": \"usd\",\n    \"recipient\": \"service-account-1\",\n    \"method\": \"internal\",\n    \"intent\": \"charge\",\n    \"description\": \"Text generation - $1.00 per request\"\n  },\n  \"/api/v1/search\": {\n    \"amount\": \"10\",\n    \"currency\": \"usd\",\n    \"recipient\": \"service-account-1\",\n    \"method\": \"internal\",\n    \"intent\": \"charge\",\n    \"description\": \"Web search - $0.10 per query\"\n  },\n  \"/api/v1/image\": {\n    \"amount\": \"500\",\n    \"currency\": \"usd\",\n    \"recipient\": \"service-account-1\",\n    \"method\": \"internal\",\n    \"intent\": \"charge\",\n    \"description\": \"Image generation - $5.00 per image\"\n  },\n  \"/api/v1/data\": {\n    \"amount\": \"50\",\n    \"currency\": \"usd\",\n    \"recipient\": \"service-account-1\",\n    \"method\": \"internal\",\n    \"intent\": \"charge\",\n    \"description\": \"Data API - $0.50 per request\"\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Paid API Endpoints (require payment)",
+      "item": [
+        {
+          "name": "POST /api/v1/generate (no payment → 402)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/generate",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Explain quantum computing in one sentence\"\n}"
+            }
+          },
+          "response": [
+            {
+              "name": "402 - Payment Required",
+              "status": "Payment Required",
+              "code": 402,
+              "body": "{\n  \"type\": \"https://paymentauth.org/problems/payment-required\",\n  \"title\": \"Payment Required\",\n  \"status\": 402,\n  \"detail\": \"Text generation - $1.00 per request\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "POST /api/v1/image (no payment → 402)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/image",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"A sunset over mountains\"\n}"
+            }
+          },
+          "response": [
+            {
+              "name": "402 - Payment Required",
+              "status": "Payment Required",
+              "code": 402,
+              "body": "{\n  \"type\": \"https://paymentauth.org/problems/payment-required\",\n  \"title\": \"Payment Required\",\n  \"status\": 402,\n  \"detail\": \"Image generation - $5.00 per image\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /api/v1/data/weather (no payment → 402)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/data/weather",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ]
+          },
+          "response": [
+            {
+              "name": "402 - Payment Required",
+              "status": "Payment Required",
+              "code": 402,
+              "body": "{\n  \"type\": \"https://paymentauth.org/problems/payment-required\",\n  \"title\": \"Payment Required\",\n  \"status\": 402,\n  \"detail\": \"Data API - $0.50 per request\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
