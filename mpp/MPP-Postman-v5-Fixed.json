@@ -1,0 +1,422 @@
+{
+  "info": {
+    "name": "MPP v5 — Spec-Compliant (draft-httpauth-payment-00)",
+    "description": "Machine Payments Protocol — IETF draft-httpauth-payment-00 compliant.\n\nStep 0: Discover seeded agents (or run Case 1 to create your own)\nCase 2: Pay-As-Go (single-use tok_)\nCase 3: Pre-Pay Session (multi-use mtok_)\n\nThe server seeds 2 test agents on startup. Run 0.1 first to load their IDs.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8402" },
+    { "key": "agent_id", "value": "" },
+    { "key": "wallet_id", "value": "" },
+    { "key": "pm_id", "value": "" },
+    { "key": "challenge_id", "value": "" },
+    { "key": "challenge_realm", "value": "" },
+    { "key": "challenge_method", "value": "" },
+    { "key": "challenge_intent", "value": "" },
+    { "key": "challenge_request", "value": "" },
+    { "key": "challenge_expires", "value": "" },
+    { "key": "challenge_description", "value": "" },
+    { "key": "single_token_id", "value": "" },
+    { "key": "multi_token_id", "value": "" },
+    { "key": "credential_b64", "value": "" },
+    { "key": "multi_credential_b64", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0. Discover seeded agents",
+      "item": [
+        {
+          "name": "0.1 List all agents → pick first agent + wallet",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/boarding/agents"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "var agents = pm.response.json();",
+                  "pm.test('Has seeded agents', () => pm.expect(agents.length).to.be.above(0));",
+                  "",
+                  "if (agents.length > 0) {",
+                  "    var agent = agents[0];",
+                  "    pm.collectionVariables.set('agent_id', agent.agentId);",
+                  "    console.log('Using agent:', agent.agentId, agent.name);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 — Seeded agents",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"agentId\": \"agent_a1b2c3d4e5f6\",\n    \"name\": \"Test Agent Alpha\",\n    \"owner\": \"vinit@example.com\",\n    \"active\": true\n  },\n  {\n    \"agentId\": \"agent_d7e8f9g0h1i2\",\n    \"name\": \"Test Agent Beta\",\n    \"owner\": \"vinit@example.com\",\n    \"active\": true\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "0.2 Get agent's wallet",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/boarding/agents/{{agent_id}}/wallet"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "var wallet = pm.response.json();",
+                  "pm.collectionVariables.set('wallet_id', wallet.walletId);",
+                  "console.log('Using wallet:', wallet.walletId);",
+                  "",
+                  "if (wallet.paymentMethods && wallet.paymentMethods.length > 0) {",
+                  "    var card = wallet.paymentMethods[0];",
+                  "    console.log('Card:', card.brand, '...' + card.last4, 'limit:', card.spendingLimit);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 — Wallet with card",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"walletId\": \"wallet_x1y2z3a4b5c6\",\n  \"agentId\": \"agent_a1b2c3d4e5f6\",\n  \"paymentMethods\": [\n    {\n      \"paymentMethodId\": \"pm_d4e5f6g7h8i9\",\n      \"type\": \"card\",\n      \"brand\": \"visa\",\n      \"last4\": \"4242\",\n      \"spendingLimit\": \"100000\",\n      \"default\": true\n    }\n  ],\n  \"active\": true\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Case 1: Agent Boarding (optional)",
+      "item": [
+        {
+          "name": "1.1 Register new agent",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/boarding/agents",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"My Custom Agent\",\n  \"owner\": \"vinit@example.com\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "var json = pm.response.json();",
+            "pm.collectionVariables.set('agent_id', json.agent_id);",
+            "console.log('agent_id:', json.agent_id);"
+          ]}}],
+          "response": [{ "name": "201", "status": "Created", "code": 201, "body": "{ \"agent_id\": \"agent_new123\" }" }]
+        },
+        {
+          "name": "1.2 Create wallet",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/boarding/agents/{{agent_id}}/wallet",
+            "header": [{ "key": "Content-Type", "value": "application/json" }]
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "var json = pm.response.json();",
+            "pm.collectionVariables.set('wallet_id', json.wallet_id);",
+            "console.log('wallet_id:', json.wallet_id);"
+          ]}}],
+          "response": [{ "name": "201", "status": "Created", "code": 201, "body": "{ \"wallet_id\": \"wallet_new456\" }" }]
+        },
+        {
+          "name": "1.3 Add payment card",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/boarding/wallets/{{wallet_id}}/payment-methods",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"type\": \"card\",\n  \"brand\": \"visa\",\n  \"last4\": \"4242\",\n  \"expiry\": \"12/28\",\n  \"spendingLimit\": \"100000\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "console.log('Card added:', pm.response.json().brand, pm.response.json().last4);"
+          ]}}],
+          "response": [{ "name": "201", "status": "Created", "code": 201, "body": "{ \"payment_method_id\": \"pm_new789\" }" }]
+        }
+      ]
+    },
+    {
+      "name": "Case 2: Pay-As-Go (tok_)",
+      "item": [
+        {
+          "name": "2.1 GET /resource → 402 + Challenge",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/v1/search?q=ai", "host": ["{{base_url}}"], "path": ["api","v1","search"], "query": [{"key":"q","value":"ai"}] }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 402', () => pm.response.to.have.status(402));",
+            "pm.test('Has WWW-Authenticate', () => pm.response.to.have.header('WWW-Authenticate'));",
+            "",
+            "var auth = pm.response.headers.get('WWW-Authenticate');",
+            "function p(h,n) { var m = h.match(new RegExp(n+'=\"([^\"]+)\"')); return m ? m[1] : ''; }",
+            "",
+            "pm.collectionVariables.set('challenge_id', p(auth,'id'));",
+            "pm.collectionVariables.set('challenge_realm', p(auth,'realm'));",
+            "pm.collectionVariables.set('challenge_method', p(auth,'method'));",
+            "pm.collectionVariables.set('challenge_intent', p(auth,'intent'));",
+            "pm.collectionVariables.set('challenge_request', p(auth,'request'));",
+            "pm.collectionVariables.set('challenge_expires', p(auth,'expires'));",
+            "pm.collectionVariables.set('challenge_description', p(auth,'description'));",
+            "",
+            "console.log('challenge_id:', p(auth,'id'));",
+            "console.log('request (encoded):', p(auth,'request'));",
+            "",
+            "// Decode request to show amount/currency/recipient",
+            "try {",
+            "    var rb64 = p(auth,'request');",
+            "    var pad = rb64 + '=='.slice(0, (4 - rb64.length % 4) % 4);",
+            "    console.log('request (decoded):', atob(pad.replace(/-/g,'+').replace(/_/g,'/')));",
+            "} catch(e) {}"
+          ]}}],
+          "response": [{ "name": "402 — Challenge", "status": "Payment Required", "code": 402,
+            "header": [
+              {"key":"WWW-Authenticate","value":"Payment id=\"hmac...\", realm=\"merchant.example.com\", method=\"card\", intent=\"charge\", request=\"eyJhbW91bnQiOiIxMCIsImN1cnJlbmN5IjoidXNkIiwicmVjaXBpZW50IjoibWVyY2hhbnRfYWNjdF8wMDEifQ\", expires=\"2026-04-03T21:35:00Z\", description=\"Web search - $0.10 per query\""},
+              {"key":"Cache-Control","value":"no-store"},
+              {"key":"Content-Type","value":"application/problem+json"}
+            ],
+            "body": "{\n  \"type\": \"https://paymentauth.org/problems/payment-required\",\n  \"title\": \"Payment Required\",\n  \"status\": 402,\n  \"detail\": \"Web search - $0.10 per query\",\n  \"challengeId\": \"hmac...\"\n}" }]
+        },
+        {
+          "name": "2.2 POST /tokens (with challenge context)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/tokens",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"agentId\": \"{{agent_id}}\",\n  \"walletId\": \"{{wallet_id}}\",\n  \"challenge\": {\n    \"id\": \"{{challenge_id}}\",\n    \"realm\": \"{{challenge_realm}}\",\n    \"method\": \"{{challenge_method}}\",\n    \"intent\": \"{{challenge_intent}}\",\n    \"request\": \"{{challenge_request}}\",\n    \"expires\": \"{{challenge_expires}}\",\n    \"description\": \"{{challenge_description}}\"\n  }\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "var json = pm.response.json();",
+            "",
+            "// Guard: check if it's an error response",
+            "if (pm.response.code !== 201) {",
+            "    console.log('ERROR:', json.detail || json.error || JSON.stringify(json));",
+            "    pm.test('Token created (got ' + pm.response.code + ')', () => pm.response.to.have.status(201));",
+            "    return;",
+            "}",
+            "",
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "pm.test('Token starts with tok_', () => pm.expect(json.token_id).to.match(/^tok_/));",
+            "",
+            "pm.collectionVariables.set('single_token_id', json.token_id);",
+            "console.log('token_id:', json.token_id);",
+            "",
+            "if (json.card) {",
+            "    console.log('Card:', json.card.brand, '...' + json.card.last4);",
+            "}",
+            "if (json.challenge) {",
+            "    console.log('Challenge ID echoed:', json.challenge.id);",
+            "}"
+          ]}}],
+          "response": [{ "name": "201 — Token", "status": "Created", "code": 201,
+            "body": "{\n  \"token_id\": \"tok_a1b2c3d4e5f6g7h8\",\n  \"type\": \"single_use\",\n  \"agent_id\": \"agent_a1b2c3d4e5f6\",\n  \"wallet_id\": \"wallet_x1y2z3a4b5c6\",\n  \"card\": { \"brand\": \"visa\", \"last4\": \"4242\" },\n  \"challenge\": {\n    \"id\": \"hmac...\",\n    \"realm\": \"merchant.example.com\",\n    \"method\": \"card\",\n    \"intent\": \"charge\",\n    \"request\": \"eyJhbW91bnQiOiIxMCIs...\"\n  },\n  \"expires_at\": \"2026-04-03T21:40:00Z\"\n}" }]
+        },
+        {
+          "name": "2.3 GET /resource + credential → 200 + Receipt",
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "// Build spec-compliant credential (Section 5.2)",
+              "var credential = {",
+              "    challenge: {",
+              "        id: pm.collectionVariables.get('challenge_id'),",
+              "        realm: pm.collectionVariables.get('challenge_realm'),",
+              "        method: pm.collectionVariables.get('challenge_method'),",
+              "        intent: pm.collectionVariables.get('challenge_intent'),",
+              "        request: pm.collectionVariables.get('challenge_request'),",
+              "        expires: pm.collectionVariables.get('challenge_expires')",
+              "    },",
+              "    source: 'did:key:' + pm.collectionVariables.get('agent_id'),",
+              "    payload: {",
+              "        token_id: pm.collectionVariables.get('single_token_id')",
+              "    }",
+              "};",
+              "",
+              "console.log('Credential payload.token_id:', credential.payload.token_id);",
+              "",
+              "var b64 = btoa(JSON.stringify(credential))",
+              "    .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');",
+              "pm.collectionVariables.set('credential_b64', b64);"
+            ]}},
+            { "listen": "test", "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has Payment-Receipt', () => pm.response.to.have.header('Payment-Receipt'));",
+              "pm.test('Cache-Control: private', () => pm.expect(pm.response.headers.get('Cache-Control')).to.eql('private'));",
+              "",
+              "var receipt = pm.response.headers.get('Payment-Receipt');",
+              "if (receipt) {",
+              "    try {",
+              "        var pad = receipt + '=='.slice(0, (4 - receipt.length % 4) % 4);",
+              "        var r = JSON.parse(atob(pad.replace(/-/g,'+').replace(/_/g,'/')));",
+              "        console.log('Receipt:', JSON.stringify(r));",
+              "        pm.test('Receipt.status = success', () => pm.expect(r.status).to.eql('success'));",
+              "        pm.test('Receipt.reference starts with txn_', () => pm.expect(r.reference).to.match(/^txn_/));",
+              "    } catch(e) { console.log('Receipt decode failed:', e.message); }",
+              "}"
+            ]}}
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/v1/search?q=ai", "host": ["{{base_url}}"], "path": ["api","v1","search"], "query": [{"key":"q","value":"ai"}] },
+            "header": [{ "key": "Authorization", "value": "Payment {{credential_b64}}" }]
+          },
+          "response": [{ "name": "200 — Resource + Receipt", "status": "OK", "code": 200,
+            "header": [
+              {"key":"Payment-Receipt","value":"eyJzdGF0dXMiOiJzdWNjZXNzIiwibWV0aG9kIjoiY2FyZCIsInRpbWVzdGFtcCI6IjIwMjYtMDQtMDNUMjE6MzA6MDVaIiwicmVmZXJlbmNlIjoidHhuX2FiYzEyMyJ9"},
+              {"key":"Cache-Control","value":"private"}
+            ],
+            "body": "{\n  \"query\": \"ai\",\n  \"results\": [\n    { \"title\": \"Result 1\", \"url\": \"https://example.com/1\" },\n    { \"title\": \"Result 2\", \"url\": \"https://example.com/2\" }\n  ]\n}" }]
+        },
+        {
+          "name": "2.4 Replay → 402",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/v1/search?q=test", "host": ["{{base_url}}"], "path": ["api","v1","search"], "query": [{"key":"q","value":"test"}] },
+            "header": [{ "key": "Authorization", "value": "Payment {{credential_b64}}" }]
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 402', () => pm.response.to.have.status(402));",
+            "pm.test('Has fresh challenge', () => pm.response.to.have.header('WWW-Authenticate'));",
+            "var json = pm.response.json();",
+            "console.log('Rejection:', json.detail);"
+          ]}}],
+          "response": [{ "name": "402 — Replay rejected", "status": "Payment Required", "code": 402,
+            "body": "{\n  \"type\": \"https://paymentauth.org/problems/invalid-challenge\",\n  \"title\": \"Invalid Challenge\",\n  \"status\": 402,\n  \"detail\": \"Token already redeemed: tok_...\"\n}" }]
+        }
+      ]
+    },
+    {
+      "name": "Case 3: Pre-Pay Session (mtok_)",
+      "item": [
+        {
+          "name": "3.1 GET /resource → 402",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/generate"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 402', () => pm.response.to.have.status(402));",
+            "// Re-parse challenge for session flow",
+            "var auth = pm.response.headers.get('WWW-Authenticate');",
+            "function p(h,n) { var m = h.match(new RegExp(n+'=\"([^\"]+)\"')); return m ? m[1] : ''; }",
+            "pm.collectionVariables.set('challenge_id', p(auth,'id'));",
+            "pm.collectionVariables.set('challenge_realm', p(auth,'realm'));",
+            "pm.collectionVariables.set('challenge_method', p(auth,'method'));",
+            "pm.collectionVariables.set('challenge_intent', p(auth,'intent'));",
+            "pm.collectionVariables.set('challenge_request', p(auth,'request'));",
+            "pm.collectionVariables.set('challenge_expires', p(auth,'expires'));"
+          ]}}],
+          "response": [{ "name": "402", "status": "Payment Required", "code": 402,
+            "body": "{ \"type\": \"https://paymentauth.org/problems/payment-required\", \"status\": 402, \"detail\": \"Text generation - $1.00 per request\" }" }]
+        },
+        {
+          "name": "3.2 POST /tokens/session ($1000 hold)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/tokens/session",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"agentId\": \"{{agent_id}}\",\n  \"walletId\": \"{{wallet_id}}\",\n  \"holdAmount\": \"100000\",\n  \"currency\": \"usd\"\n}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "var json = pm.response.json();",
+            "if (pm.response.code !== 201) {",
+            "    console.log('ERROR:', json.detail || JSON.stringify(json));",
+            "    pm.test('Session created', () => pm.response.to.have.status(201));",
+            "    return;",
+            "}",
+            "pm.test('Status 201', () => pm.response.to.have.status(201));",
+            "pm.test('Token starts with mtok_', () => pm.expect(json.token_id).to.match(/^mtok_/));",
+            "pm.collectionVariables.set('multi_token_id', json.token_id);",
+            "console.log('mtok:', json.token_id, 'hold:', json.hold_amount, json.currency);"
+          ]}}],
+          "response": [{ "name": "201 — Multi-Use Token", "status": "Created", "code": 201,
+            "body": "{\n  \"token_id\": \"mtok_x1y2z3\",\n  \"type\": \"multi_use\",\n  \"hold_amount\": \"100000\",\n  \"used_amount\": \"0\",\n  \"remaining\": \"100000\",\n  \"currency\": \"usd\"\n}" }]
+        },
+        {
+          "name": "3.3 GET /search + mtok_ → 200 ($0.10)",
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "var cred = {",
+              "    challenge: {",
+              "        id: pm.collectionVariables.get('challenge_id'),",
+              "        realm: pm.collectionVariables.get('challenge_realm'),",
+              "        method: pm.collectionVariables.get('challenge_method'),",
+              "        intent: pm.collectionVariables.get('challenge_intent'),",
+              "        request: pm.collectionVariables.get('challenge_request')",
+              "    },",
+              "    source: 'did:key:' + pm.collectionVariables.get('agent_id'),",
+              "    payload: { token_id: pm.collectionVariables.get('multi_token_id') }",
+              "};",
+              "var b64 = btoa(JSON.stringify(cred)).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');",
+              "pm.collectionVariables.set('multi_credential_b64', b64);"
+            ]}},
+            { "listen": "test", "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has Payment-Receipt', () => pm.response.to.have.header('Payment-Receipt'));",
+              "console.log('$0.10 debited from session hold');"
+            ]}}
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{base_url}}/api/v1/search?q=quantum", "host": ["{{base_url}}"], "path": ["api","v1","search"], "query": [{"key":"q","value":"quantum"}] },
+            "header": [{ "key": "Authorization", "value": "Payment {{multi_credential_b64}}" }]
+          },
+          "response": [{ "name": "200 — $0.10 debited", "status": "OK", "code": 200,
+            "body": "{ \"query\": \"quantum\", \"results\": [{ \"title\": \"Result 1\" }] }" }]
+        },
+        {
+          "name": "3.4 POST /generate + mtok_ → 200 ($1.00)",
+          "event": [
+            { "listen": "prerequest", "script": { "exec": [
+              "var cred = {",
+              "    challenge: { id: pm.collectionVariables.get('challenge_id'), realm: pm.collectionVariables.get('challenge_realm'), method: pm.collectionVariables.get('challenge_method'), intent: pm.collectionVariables.get('challenge_intent'), request: pm.collectionVariables.get('challenge_request') },",
+              "    source: 'did:key:' + pm.collectionVariables.get('agent_id'),",
+              "    payload: { token_id: pm.collectionVariables.get('multi_token_id') }",
+              "};",
+              "var b64 = btoa(JSON.stringify(cred)).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');",
+              "pm.collectionVariables.set('multi_credential_b64', b64);"
+            ]}},
+            { "listen": "test", "script": { "exec": [
+              "pm.test('Status 200', () => pm.response.to.have.status(200));",
+              "console.log('$1.00 debited from session hold');"
+            ]}}
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/generate",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Payment {{multi_credential_b64}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{ \"prompt\": \"Explain MPP\" }" }
+          },
+          "response": [{ "name": "200 — $1.00 debited", "status": "OK", "code": 200,
+            "body": "{ \"content\": \"Generated response for: Explain MPP\" }" }]
+        },
+        {
+          "name": "3.5 Check session balance",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/tokens/{{multi_token_id}}"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('Status 200', () => pm.response.to.have.status(200));",
+            "var json = pm.response.json();",
+            "console.log('Hold:', json.hold_amount, 'Used:', json.used_amount, 'Remaining:', json.remaining, 'Count:', json.usage_count);"
+          ]}}],
+          "response": [{ "name": "200 — Balance", "status": "OK", "code": 200,
+            "body": "{\n  \"token_id\": \"mtok_x1y2z3\",\n  \"hold_amount\": \"100000\",\n  \"used_amount\": \"110\",\n  \"remaining\": \"99890\",\n  \"usage_count\": 2\n}" }]
+        }
+      ]
+    }
+  ]
+}
