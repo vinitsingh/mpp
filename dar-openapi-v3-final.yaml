@@ -1,0 +1,1079 @@
+openapi: 3.1.0
+info:
+  title: Distributed Agent Registry (DAR)
+  version: 3.0.0
+  description: |
+    Federated agent identity, trust, and payment infrastructure for agentic commerce.
+
+    Three domains:
+    1. **DID Agent Registry** — agent lifecycle, capabilities, trust, federation
+    2. **Discovery & Signatures** — registry discovery, JWKS, key lookup, agent verification
+    3. **Wallet** — payment methods
+
+    Design principles:
+    - W3C DID-based portable identity
+    - Federated: multiple issuers, cross-registry linking
+    - HTTP Message Signatures (RFC 9421) for agent authentication
+    - Trust is earned from history, not self-declared
+    - MPP spec-compliant (draft-httpauth-payment-00)
+
+servers:
+  - url: https://registry.example.com/v1
+    description: Production
+  - url: http://localhost:8402
+    description: Local
+
+tags:
+  - name: DID Agent Registry
+    description: Agent identity, capabilities, trust, KYA, federation, status management
+  - name: Discovery & Signatures
+    description: Registry discovery, JWKS, key lookup, agent verification
+  - name: Wallet
+    description: Payment wallet and stored payment methods
+
+# ═══════════════════════════════════════════════════════════════
+#  PATHS
+# ═══════════════════════════════════════════════════════════════
+
+paths:
+
+  # ─────────────────────────────────────────────────────────────
+  #  1. DID AGENT REGISTRY
+  # ─────────────────────────────────────────────────────────────
+
+  /agents:
+    post:
+      tags: [DID Agent Registry]
+      operationId: registerAgent
+      summary: Board a new agent
+      description: |
+        Registers agent identity, capabilities, delegation, spending limits,
+        federation links, and initiates KYA. Returns agent_id, agent_did,
+        and signing key material.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRegistrationRequest'
+            example:
+              name: Alpha Trading Agent
+              version: "1.2.0"
+              owner:
+                name: Vinit Labs Inc.
+                contact: vinit@example.com
+                jurisdiction: US
+              capabilities:
+                intents: [browse, purchase]
+                commerce:
+                  protocols_supported: [mpp, ucp]
+                  transport: [http, mcp]
+                spending:
+                  per_transaction_limit: "10000"
+                  daily_limit: "500000"
+                  currencies: [usd]
+                  auto_approve_threshold: "1000"
+                allowed_categories: [digital_services, api_access]
+              delegation:
+                consumer:
+                  consumer_id: usr_vinit_42
+                  verified: true
+                  identity_provider: auth0
+                consent:
+                  type: delegated
+                  scope: "purchase:digital_services"
+                  expires_at: "2026-07-01T00:00:00Z"
+              federation:
+                - registry: visa-tap
+                  external_id: visa_agent_xyz
+                - registry: google-ap2
+                  external_id: ap2_agent_abc
+      responses:
+        '201':
+          description: Agent registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    get:
+      tags: [DID Agent Registry]
+      operationId: listAgents
+      summary: List registered agents
+      parameters:
+        - name: owner
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/AgentStatus'
+        - name: trust_level
+          in: query
+          schema:
+            $ref: '#/components/schemas/TrustLevel'
+      responses:
+        '200':
+          description: Agent list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentRecord'
+
+  /agents/{agent_id}:
+    get:
+      tags: [DID Agent Registry]
+      operationId: getAgent
+      summary: Get full agent record
+      description: |
+        Returns everything: identity, capabilities, delegation, trust profile,
+        KYA status, federation links, wallet summary, and signing key info.
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Full agent record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRecord'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [DID Agent Registry]
+      operationId: updateAgent
+      summary: Update agent attributes, status, or lifecycle
+      description: |
+        Single endpoint for all agent mutations:
+        - Update attributes: name, version, capabilities, delegation, federation
+        - Suspend: `{ "status": "suspended", "status_reason": "fraud detected" }`
+        - Revoke: `{ "status": "revoked", "status_reason": "owner request" }`
+        - Reactivate: `{ "status": "active" }`
+        - Update spending limits, categories, geo restrictions
+        - Add/remove federation links
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdateRequest'
+            examples:
+              update_capabilities:
+                summary: Update spending limit
+                value:
+                  capabilities:
+                    spending:
+                      per_transaction_limit: "50000"
+                      daily_limit: "1000000"
+              suspend_agent:
+                summary: Suspend agent
+                value:
+                  status: suspended
+                  status_reason: Suspicious transaction pattern detected
+              revoke_agent:
+                summary: Revoke agent permanently
+                value:
+                  status: revoked
+                  status_reason: Owner requested termination
+              reactivate_agent:
+                summary: Reactivate suspended agent
+                value:
+                  status: active
+                  status_reason: Investigation cleared
+              add_federation:
+                summary: Add federation link
+                value:
+                  federation:
+                    - registry: visa-tap
+                      external_id: visa_agent_xyz
+                    - registry: google-ap2
+                      external_id: ap2_agent_abc
+                    - registry: skyfire-kya
+                      external_id: kya_agent_new
+              update_delegation:
+                summary: Update consent scope
+                value:
+                  delegation:
+                    consent:
+                      scope: "purchase:digital_services,purchase:compute"
+                      expires_at: "2027-01-01T00:00:00Z"
+      responses:
+        '200':
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Invalid status transition (e.g. revoked → active)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ─────────────────────────────────────────────────────────────
+  #  2. DISCOVERY & SIGNATURES
+  # ─────────────────────────────────────────────────────────────
+
+  /.well-known/agent-registry:
+    get:
+      tags: [Discovery & Signatures]
+      operationId: registryDiscovery
+      summary: Registry discovery document
+      description: |
+        Returns registry metadata: endpoints, supported trust frameworks,
+        supported protocols, and federation peers.
+        First thing any participant fetches.
+      responses:
+        '200':
+          description: Discovery document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryDiscovery'
+              example:
+                registry_id: dar_psp_example
+                name: Example PSP Agent Registry
+                version: "3.0.0"
+                endpoints:
+                  agents: https://psp.example.com/v1/agents
+                  wallets: https://psp.example.com/v1/wallets
+                  keys: https://psp.example.com/v1/keys
+                  jwks: https://psp.example.com/.well-known/jwks.json
+                  verify: https://psp.example.com/v1/agents/{agent_id}/verify
+                trust_frameworks: [visa-tap, google-ap2, skyfire-kya]
+                protocols_supported: [mpp, ucp, acp, x402]
+                federated_with:
+                  - https://visa-tap.example.com/.well-known/agent-registry
+                  - https://google-ap2.example.com/.well-known/agent-registry
+
+  /.well-known/jwks.json:
+    get:
+      tags: [Discovery & Signatures]
+      operationId: getJwks
+      summary: JSON Web Key Set (all agent public keys)
+      description: |
+        Returns all active agent public keys. Merchants cache this
+        and match `kid` from agent's Signature-Input header.
+        For single-key lookup on cache miss, use `/keys/{kid}`.
+      parameters:
+        - name: issuer
+          in: query
+          schema:
+            type: string
+          description: Filter keys by issuer ID
+      responses:
+        '200':
+          description: JWKS
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Jwks'
+
+  /keys/{kid}:
+    get:
+      tags: [Discovery & Signatures]
+      operationId: getKeyByKid
+      summary: Get single public key by kid (merchant cache-miss path)
+      description: |
+        Merchant extracts `kid` from the agent's `Signature-Input` header.
+        On local cache miss, fetches this endpoint for one key
+        with owning agent context and trust level.
+      parameters:
+        - name: kid
+          in: path
+          required: true
+          schema:
+            type: string
+            example: kid_agent_a1b2c3_2026Q2
+      responses:
+        '200':
+          description: Public key with agent context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyWithContext'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /agents/{agent_id}/keys:
+    post:
+      tags: [Discovery & Signatures]
+      operationId: rotateKey
+      summary: Rotate agent signing key
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeyRotationRequest'
+      responses:
+        '201':
+          description: New key registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SigningKey'
+
+  /agents/{agent_id}/verify:
+    post:
+      tags: [Discovery & Signatures]
+      operationId: verifyAgent
+      summary: Verify agent identity (merchant-facing)
+      description: |
+        Merchant sends the HTTP Message Signature headers.
+        Registry verifies signature against agent's public key
+        and returns trust context.
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyResponse'
+
+  # ─────────────────────────────────────────────────────────────
+  #  3. WALLET
+  # ─────────────────────────────────────────────────────────────
+
+  /agents/{agent_id}/wallet:
+    post:
+      tags: [Wallet]
+      operationId: createWallet
+      summary: Create wallet for agent
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '201':
+          description: Wallet created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+
+    get:
+      tags: [Wallet]
+      operationId: getWallet
+      summary: Get agent's wallet
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Wallet with payment methods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Wallet'
+
+  /wallets/{wallet_id}/payment-methods:
+    post:
+      tags: [Wallet]
+      operationId: addPaymentMethod
+      summary: Add payment method to wallet
+      parameters:
+        - $ref: '#/components/parameters/WalletId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentMethodRequest'
+      responses:
+        '201':
+          description: Payment method added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+
+    get:
+      tags: [Wallet]
+      operationId: listPaymentMethods
+      summary: List payment methods
+      parameters:
+        - $ref: '#/components/parameters/WalletId'
+      responses:
+        '200':
+          description: Payment methods
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentMethod'
+
+# ═══════════════════════════════════════════════════════════════
+#  COMPONENTS
+# ═══════════════════════════════════════════════════════════════
+
+components:
+
+  parameters:
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^agent_[a-z0-9]+$
+
+    WalletId:
+      name: wallet_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^wallet_[a-z0-9]+$
+
+  schemas:
+
+    # ── Agent ───────────────────────────────────────────────
+
+    AgentRegistrationRequest:
+      type: object
+      required: [name, owner, capabilities]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        owner:
+          $ref: '#/components/schemas/Owner'
+        capabilities:
+          $ref: '#/components/schemas/Capabilities'
+        delegation:
+          $ref: '#/components/schemas/Delegation'
+        federation:
+          type: array
+          items:
+            $ref: '#/components/schemas/FederationLink'
+        platform:
+          type: string
+        model:
+          type: string
+        homepage:
+          type: string
+          format: uri
+        logo_uri:
+          type: string
+          format: uri
+
+    AgentUpdateRequest:
+      type: object
+      description: |
+        Partial update — send only fields to change.
+        Includes status transitions (active/suspended/revoked).
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        status_reason:
+          type: string
+          description: |
+            Required when changing status. Explains why the agent
+            is being suspended, revoked, or reactivated.
+            Stored in audit trail.
+          example: Suspicious transaction pattern detected
+        capabilities:
+          $ref: '#/components/schemas/Capabilities'
+        delegation:
+          $ref: '#/components/schemas/Delegation'
+        federation:
+          type: array
+          description: |
+            Replaces entire federation list. To add a link,
+            include all existing links plus the new one.
+          items:
+            $ref: '#/components/schemas/FederationLink'
+        platform:
+          type: string
+        model:
+          type: string
+
+    AgentRecord:
+      type: object
+      description: Complete agent record — single source of truth
+      properties:
+        agent_id:
+          type: string
+        agent_did:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        status_reason:
+          type: string
+          description: Reason for current status (if suspended/revoked)
+        status_changed_at:
+          type: string
+          format: date-time
+        owner:
+          $ref: '#/components/schemas/Owner'
+        issuer:
+          $ref: '#/components/schemas/Issuer'
+        capabilities:
+          $ref: '#/components/schemas/Capabilities'
+        delegation:
+          $ref: '#/components/schemas/Delegation'
+        trust:
+          $ref: '#/components/schemas/TrustProfile'
+        federation:
+          type: array
+          items:
+            $ref: '#/components/schemas/FederationLink'
+        signing_key:
+          $ref: '#/components/schemas/SigningKey'
+        wallet_summary:
+          $ref: '#/components/schemas/WalletSummary'
+        platform:
+          type: string
+        model:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AgentStatus:
+      type: string
+      enum: [active, suspended, revoked, expired]
+      description: |
+        Valid transitions:
+        - active → suspended (reversible)
+        - active → revoked (permanent)
+        - suspended → active (reactivate)
+        - suspended → revoked (permanent)
+        - revoked → (terminal, no transitions out)
+
+    Owner:
+      type: object
+      required: [name, contact, jurisdiction]
+      properties:
+        entity_id:
+          type: string
+        name:
+          type: string
+        contact:
+          type: string
+          format: email
+        jurisdiction:
+          type: string
+
+    Issuer:
+      type: object
+      properties:
+        issuer_id:
+          type: string
+        name:
+          type: string
+        jwks_uri:
+          type: string
+          format: uri
+        trust_framework:
+          type: string
+          enum: [visa-tap, google-ap2, skyfire-kya, custom]
+
+    # ── Capabilities ────────────────────────────────────────
+
+    Capabilities:
+      type: object
+      properties:
+        intents:
+          type: array
+          items:
+            type: string
+            enum: [browse, purchase, subscribe, return, negotiate]
+        commerce:
+          type: object
+          properties:
+            protocols_supported:
+              type: array
+              items:
+                type: string
+                enum: [mpp, ucp, acp, x402, ap2]
+            transport:
+              type: array
+              items:
+                type: string
+                enum: [http, mcp, a2a]
+        spending:
+          type: object
+          properties:
+            per_transaction_limit:
+              type: string
+            daily_limit:
+              type: string
+            monthly_limit:
+              type: string
+            currencies:
+              type: array
+              items:
+                type: string
+            auto_approve_threshold:
+              type: string
+        allowed_categories:
+          type: array
+          items:
+            type: string
+        blocked_categories:
+          type: array
+          items:
+            type: string
+        geo:
+          type: object
+          properties:
+            allowed_countries:
+              type: array
+              items:
+                type: string
+            blocked_countries:
+              type: array
+              items:
+                type: string
+
+    # ── Delegation ──────────────────────────────────────────
+
+    Delegation:
+      type: object
+      properties:
+        consumer:
+          type: object
+          properties:
+            consumer_id:
+              type: string
+            consumer_did:
+              type: string
+            verified:
+              type: boolean
+            identity_provider:
+              type: string
+        consent:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [delegated, autonomous, supervised]
+            scope:
+              type: string
+            granted_at:
+              type: string
+              format: date-time
+            expires_at:
+              type: string
+              format: date-time
+            revocation_uri:
+              type: string
+              format: uri
+        merchant_context:
+          type: object
+          description: Per Visa TAP consumer recognition
+          properties:
+            loyalty_id:
+              type: string
+            device_fingerprint:
+              type: string
+            prior_interaction:
+              type: boolean
+            location:
+              type: object
+              properties:
+                country:
+                  type: string
+                postal_code:
+                  type: string
+
+    # ── Trust ───────────────────────────────────────────────
+
+    TrustLevel:
+      type: string
+      enum: [unverified, basic, verified, premium]
+
+    TrustProfile:
+      type: object
+      properties:
+        trust_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        trust_level:
+          $ref: '#/components/schemas/TrustLevel'
+        kya:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [pending, in_review, approved, suspended, revoked]
+            verified_at:
+              type: string
+              format: date-time
+            next_review:
+              type: string
+              format: date-time
+            checks_passed:
+              type: array
+              items:
+                type: string
+            checks_failed:
+              type: array
+              items:
+                type: string
+        compliance:
+          type: object
+          properties:
+            psd2_sca_exempt:
+              type: boolean
+            pci_dss_compliant:
+              type: boolean
+            gdpr_data_processing:
+              type: string
+              enum: [compliant, non_compliant, not_applicable]
+            aml_screening:
+              type: string
+              enum: [passed, failed, pending]
+        audit:
+          type: object
+          properties:
+            total_transactions:
+              type: integer
+            total_volume:
+              type: string
+            first_transaction:
+              type: string
+              format: date-time
+            last_transaction:
+              type: string
+              format: date-time
+            dispute_rate:
+              type: string
+            chargeback_count:
+              type: integer
+
+    # ── Federation ──────────────────────────────────────────
+
+    FederationLink:
+      type: object
+      properties:
+        registry:
+          type: string
+          enum: [visa-tap, google-ap2, skyfire-kya, custom]
+        external_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, linked, unlinked, revoked]
+        linked_at:
+          type: string
+          format: date-time
+        registry_uri:
+          type: string
+          format: uri
+
+    # ── Discovery & Signatures ──────────────────────────────
+
+    RegistryDiscovery:
+      type: object
+      properties:
+        registry_id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        endpoints:
+          type: object
+          properties:
+            agents:
+              type: string
+              format: uri
+            wallets:
+              type: string
+              format: uri
+            keys:
+              type: string
+              format: uri
+            jwks:
+              type: string
+              format: uri
+            verify:
+              type: string
+              format: uri
+        trust_frameworks:
+          type: array
+          items:
+            type: string
+        protocols_supported:
+          type: array
+          items:
+            type: string
+        federated_with:
+          type: array
+          items:
+            type: string
+            format: uri
+
+    Jwks:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty:
+                type: string
+              kid:
+                type: string
+              use:
+                type: string
+                enum: [sig]
+              alg:
+                type: string
+              crv:
+                type: string
+              x:
+                type: string
+
+    KeyWithContext:
+      type: object
+      description: Single public key with owning agent context
+      properties:
+        kid:
+          type: string
+        kty:
+          type: string
+        alg:
+          type: string
+        crv:
+          type: string
+        x:
+          type: string
+        agent_id:
+          type: string
+        agent_did:
+          type: string
+        trust_level:
+          $ref: '#/components/schemas/TrustLevel'
+        status:
+          type: string
+          enum: [active, rotated, revoked]
+        expires_at:
+          type: string
+          format: date-time
+
+    SigningKey:
+      type: object
+      properties:
+        kid:
+          type: string
+        algorithm:
+          type: string
+          enum: [ed25519, ecdsa-p256, rsa-pss]
+        public_key:
+          type: string
+        status:
+          type: string
+          enum: [active, rotated, revoked]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    KeyRotationRequest:
+      type: object
+      required: [algorithm, public_key]
+      properties:
+        algorithm:
+          type: string
+          enum: [ed25519, ecdsa-p256, rsa-pss]
+        public_key:
+          type: string
+
+    VerifyRequest:
+      type: object
+      required: [signature, signature_input]
+      properties:
+        signature:
+          type: string
+          description: HTTP Signature header value
+        signature_input:
+          type: string
+          description: Signature-Input header value
+        request_target:
+          type: string
+        authority:
+          type: string
+
+    VerifyResponse:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        agent_id:
+          type: string
+        agent_did:
+          type: string
+        trust_level:
+          $ref: '#/components/schemas/TrustLevel'
+        trust_score:
+          type: integer
+        intents:
+          type: array
+          items:
+            type: string
+        spending_limit:
+          type: string
+        consumer:
+          type: object
+          properties:
+            consumer_id:
+              type: string
+            verified:
+              type: boolean
+        federation:
+          type: array
+          items:
+            $ref: '#/components/schemas/FederationLink'
+
+    # ── Wallet ──────────────────────────────────────────────
+
+    Wallet:
+      type: object
+      properties:
+        wallet_id:
+          type: string
+        agent_id:
+          type: string
+        psp_id:
+          type: string
+        psp_endpoint:
+          type: string
+          format: uri
+        payment_methods:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentMethod'
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    WalletSummary:
+      type: object
+      description: Compact wallet info embedded in AgentRecord
+      properties:
+        wallet_id:
+          type: string
+        methods_count:
+          type: integer
+        has_default_card:
+          type: boolean
+
+    PaymentMethodRequest:
+      type: object
+      required: [type, brand, last4, spending_limit]
+      properties:
+        type:
+          type: string
+          enum: [card, stablecoin, lightning, bank_account]
+        brand:
+          type: string
+        last4:
+          type: string
+        expiry:
+          type: string
+        spending_limit:
+          type: string
+        network:
+          type: string
+        address:
+          type: string
+
+    PaymentMethod:
+      type: object
+      properties:
+        payment_method_id:
+          type: string
+        type:
+          type: string
+          enum: [card, stablecoin, lightning, bank_account]
+        brand:
+          type: string
+        last4:
+          type: string
+        expiry:
+          type: string
+        network:
+          type: string
+        address:
+          type: string
+        tokenized:
+          type: boolean
+        payment_account_reference:
+          type: string
+          description: Visa PAR for card-on-file
+        spending_limit:
+          type: string
+        is_default:
+          type: boolean
+
+    # ── Errors ──────────────────────────────────────────────
+
+    ProblemDetail:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
