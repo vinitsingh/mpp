@@ -1,0 +1,1195 @@
+openapi: 3.1.0
+info:
+  title: Distributed Agent Registry (DAR)
+  version: 3.2.0
+  description: |
+    Federated agent identity, trust, and payment infrastructure for agentic commerce.
+
+    Three domains:
+    1. **DID Agent Registry** — agent lifecycle, capabilities, trust, federation, cards
+    2. **Discovery & Signatures** — registry discovery, JWKS, key lookup
+
+    Compliance:
+    - **W3C DID** — agent_did and consumer_did use did:web method for resolution
+    - **Visa TAP** — agent intent signatures (RFC 9421), consumer recognition (PAR, loyalty, device),
+      browsing vs payment tag classification
+    - **Google AP2** — cart mandate with cryptographic consent proof, payment handler interop,
+      buyer identity binding
+    - **Skyfire KYA** — Know-Your-Agent verification via JWT, trust scoring
+    - **MPP** — draft-httpauth-payment-00 HTTP 402 Payment scheme
+
+    Key design decisions:
+    - Merchant verifies agent signatures locally using cached JWKS — no registry call at transaction time
+    - Wallet is auto-created when the first card/payment method is added to an agent
+    - Wallet ID is an internal detail, not exposed in the API
+
+servers:
+  - url: https://registry.example.com/v1
+    description: Production
+  - url: http://localhost:8402
+    description: Local
+
+tags:
+  - name: DID Agent Registry
+    description: Agent identity, capabilities, trust, KYA, federation, payment methods
+  - name: Discovery & Signatures
+    description: Registry discovery, JWKS, key lookup, key rotation
+
+# ═══════════════════════════════════════════════════════════════
+#  PATHS
+# ═══════════════════════════════════════════════════════════════
+
+paths:
+
+  # ─────────────────────────────────────────────────────────────
+  #  1. DID AGENT REGISTRY
+  # ─────────────────────────────────────────────────────────────
+
+  /agents:
+    post:
+      tags: [DID Agent Registry]
+      operationId: registerAgent
+      summary: Board a new agent
+      description: |
+        Registers agent identity, capabilities, delegation (with Visa TAP
+        consumer recognition and Google AP2 cart mandate), spending limits,
+        federation links, and initiates KYA. Returns agent_id, agent_did,
+        and signing key material.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRegistrationRequest'
+            examples:
+              default:
+                value:
+                  name: Alpha Trading Agent
+                  version: "1.2.0"
+                  owner:
+                    name: MPP Labs Inc.
+                    contact: mpp@example.com
+                    jurisdiction: US
+                  capabilities:
+                    intents: [browse, purchase]
+                    commerce:
+                      protocols_supported: [mpp, ucp, acp, x402, ap2]
+                      transport: [http, mcp]
+                    spending:
+                      per_transaction_limit: "10000"
+                      daily_limit: "500000"
+                      currencies: [usd]
+                      auto_approve_threshold: "1000"
+                    allowed_categories: [digital_services, api_access]
+                  delegation:
+                    consumer:
+                      consumer_id: usr_vinit_42
+                      consumer_did: "did:web:idp.example.com:users:vinit_42"
+                      verified: true
+                      identity_provider: auth0
+                      authentication_method: webauthn
+                    consent:
+                      type: delegated
+                      scope: "purchase:digital_services"
+                      expires_at: "2026-07-01T00:00:00Z"
+                      cart_mandate:
+                        mandate_id: "mandate_abc123"
+                        signature: "base64url-ed25519-signature"
+                        scope: "purchase:digital_services:max_1000_usd"
+                    merchant_context:
+                      - merchant_domain: "api.merchant-one.com"
+                        loyalty_id: "LOY-12345"
+                        payment_account_reference: "PAR-V-abc123"
+                        prior_interaction: true
+                      - merchant_domain: "shop.merchant-two.com"
+                        prior_interaction: false
+                  federation:
+                    - registry: visa-tap
+                      external_id: visa_agent_xyz
+                    - registry: google-ap2
+                      external_id: ap2_agent_abc
+      responses:
+        '201':
+          description: Agent registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /agents/{agent_id}:
+    get:
+      tags: [DID Agent Registry]
+      operationId: getAgent
+      summary: Get full agent record
+      description: |
+        Returns everything: identity, capabilities, delegation (with merchant
+        context per Visa TAP and cart mandate per Google AP2), trust profile,
+        KYA status, federation links, payment methods, and signing key info.
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Full agent record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRecord'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [DID Agent Registry]
+      operationId: updateAgent
+      summary: Update agent attributes, status, or lifecycle
+      description: |
+        Single endpoint for all agent mutations:
+        - Update attributes: name, version, capabilities, delegation, federation
+        - Suspend: `{ "status": "suspended", "status_reason": "fraud detected" }`
+        - Revoke: `{ "status": "revoked", "status_reason": "owner request" }`
+        - Reactivate: `{ "status": "active" }`
+        - Update spending limits, categories, geo restrictions
+        - Add/remove federation links
+        - Update merchant_context per merchant (Visa TAP consumer recognition)
+        - Update cart_mandate (Google AP2 consent refresh)
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentUpdateRequest'
+            examples:
+              update_capabilities:
+                summary: Update spending limit
+                value:
+                  capabilities:
+                    spending:
+                      per_transaction_limit: "50000"
+                      daily_limit: "1000000"
+              suspend_agent:
+                summary: Suspend agent
+                value:
+                  status: suspended
+                  status_reason: Suspicious transaction pattern detected
+              revoke_agent:
+                summary: Revoke agent permanently
+                value:
+                  status: revoked
+                  status_reason: Owner requested termination
+              reactivate_agent:
+                summary: Reactivate suspended agent
+                value:
+                  status: active
+                  status_reason: Investigation cleared
+              add_federation:
+                summary: Add federation link
+                value:
+                  federation:
+                    - registry: visa-tap
+                      external_id: visa_agent_xyz
+                    - registry: google-ap2
+                      external_id: ap2_agent_abc
+                    - registry: skyfire-kya
+                      external_id: kya_agent_new
+              update_merchant_context:
+                summary: Add merchant recognition (Visa TAP)
+                value:
+                  delegation:
+                    merchant_context:
+                      - merchant_domain: "newshop.example.com"
+                        loyalty_id: "NEWLOY-789"
+                        payment_account_reference: "PAR-V-def456"
+                        network_token_id: "DNITHE28238"
+                        prior_interaction: false
+              refresh_cart_mandate:
+                summary: Refresh Google AP2 cart mandate
+                value:
+                  delegation:
+                    consent:
+                      cart_mandate:
+                        mandate_id: "mandate_refreshed_456"
+                        signature: "new-base64url-ed25519-signature"
+                        scope: "purchase:digital_services:max_5000_usd"
+                        expires_at: "2027-01-01T00:00:00Z"
+      responses:
+        '200':
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Invalid status transition (e.g. revoked -> active)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ── Payment Methods ─────────────────────────────────────────
+
+  /agents/{agent_id}/cards:
+    post:
+      tags: [DID Agent Registry]
+      operationId: addCard
+      summary: Add payment method to agent (auto-creates wallet)
+      description: |
+        Adds a card or other payment method to the agent.
+        If this is the first payment method, a wallet is automatically
+        created and linked to the agent. The wallet_id is returned
+        in the response but is an internal detail — callers never
+        need to track it separately.
+
+        The first card added becomes the default payment method.
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentMethodRequest'
+            examples:
+              visa_card:
+                summary: Add a Visa card
+                value:
+                  type: card
+                  brand: visa
+                  last4: "4242"
+                  expiry: "12/28"
+                  spending_limit: "100000"
+              mastercard:
+                summary: Add a Mastercard
+                value:
+                  type: card
+                  brand: mastercard
+                  last4: "5555"
+                  expiry: "06/27"
+                  spending_limit: "500000"
+              stablecoin:
+                summary: Add USDC wallet
+                value:
+                  type: stablecoin
+                  network: ethereum
+                  address: "0x742d35Cc6634C0532925a3b844Bc9e7595f8fE00"
+                  spending_limit: "1000000"
+      responses:
+        '201':
+          description: Payment method added (wallet auto-created if first)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddCardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    get:
+      tags: [DID Agent Registry]
+      operationId: listCards
+      summary: List agent's payment methods
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '200':
+          description: Payment methods
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PaymentMethod'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─────────────────────────────────────────────────────────────
+  #  2. DISCOVERY & SIGNATURES
+  # ─────────────────────────────────────────────────────────────
+
+  /.well-known/agent-registry:
+    get:
+      tags: [Discovery & Signatures]
+      operationId: registryDiscovery
+      summary: Registry discovery document
+      description: |
+        Returns registry metadata: endpoints, supported trust frameworks,
+        supported protocols, federation peers, and DID resolution method.
+      responses:
+        '200':
+          description: Discovery document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistryDiscovery'
+
+  /.well-known/keys/{kid}:
+    get:
+      tags: [Discovery & Signatures]
+      operationId: getKeyByKid
+      summary: Get single public key by kid (merchant cache-miss path)
+      description: |
+        Merchant extracts `kid` from the agent's `Signature-Input` header.
+        On local cache miss, fetches this endpoint for one key
+        with owning agent context and trust level.
+      parameters:
+        - name: kid
+          in: path
+          required: true
+          schema:
+            type: string
+            examples: [kid_agent_a1b2c3_2026Q2]
+      responses:
+        '200':
+          description: Public key with agent context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyWithContext'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /agents/{agent_id}/keys:
+    post:
+      tags: [Discovery & Signatures]
+      operationId: rotateKey
+      summary: Rotate agent signing key
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KeyRotationRequest'
+      responses:
+        '201':
+          description: New key registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SigningKey'
+
+# ═══════════════════════════════════════════════════════════════
+#  COMPONENTS
+# ═══════════════════════════════════════════════════════════════
+
+components:
+
+  parameters:
+    AgentId:
+      name: agent_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: ^agent_[a-z0-9]+$
+
+  schemas:
+
+    # ── Agent ───────────────────────────────────────────────
+
+    AgentRegistrationRequest:
+      type: object
+      required: [name, owner, capabilities]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        owner:
+          $ref: '#/components/schemas/Owner'
+        capabilities:
+          $ref: '#/components/schemas/Capabilities'
+        delegation:
+          $ref: '#/components/schemas/Delegation'
+        federation:
+          type: array
+          items:
+            $ref: '#/components/schemas/FederationLink'
+        platform:
+          type: string
+        model:
+          type: string
+        homepage:
+          type: string
+          format: uri
+        logo_uri:
+          type: string
+          format: uri
+
+    AgentUpdateRequest:
+      type: object
+      description: |
+        Partial update — send only fields to change.
+        Includes status transitions (active/suspended/revoked).
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        status_reason:
+          type: string
+          description: |
+            Required when changing status. Stored in audit trail.
+          examples: [Suspicious transaction pattern detected]
+        capabilities:
+          $ref: '#/components/schemas/Capabilities'
+        delegation:
+          $ref: '#/components/schemas/Delegation'
+        federation:
+          type: array
+          items:
+            $ref: '#/components/schemas/FederationLink'
+        platform:
+          type: string
+        model:
+          type: string
+
+    AgentRecord:
+      type: object
+      description: Complete agent record — single source of truth
+      properties:
+        agent_id:
+          type: string
+          examples: [agent_a1b2c3d4e5f6]
+        agent_did:
+          type: string
+          description: |
+            W3C DID using did:web method. Resolves to a DID Document at:
+            https://{host}/agents/{agent_id}/did.json
+            The DID Document contains the agent's public keys, service
+            endpoints, and authentication methods.
+          examples: ["did:web:registry.example.com:agents:a1b2c3d4e5f6"]
+        name:
+          type: string
+        version:
+          type: string
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        status_reason:
+          type: string
+        status_changed_at:
+          type: string
+          format: date-time
+        owner:
+          $ref: '#/components/schemas/Owner'
+        issuer:
+          $ref: '#/components/schemas/Issuer'
+        capabilities:
+          $ref: '#/components/schemas/Capabilities'
+        delegation:
+          $ref: '#/components/schemas/Delegation'
+        trust:
+          $ref: '#/components/schemas/TrustProfile'
+        federation:
+          type: array
+          items:
+            $ref: '#/components/schemas/FederationLink'
+        signing_key:
+          $ref: '#/components/schemas/SigningKey'
+        payment_methods:
+          type: array
+          description: Agent's stored payment methods (cards, crypto, etc.)
+          items:
+            $ref: '#/components/schemas/PaymentMethod'
+        platform:
+          type: string
+        model:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AgentStatus:
+      type: string
+      enum: [active, suspended, revoked, expired]
+      description: |
+        Valid transitions:
+        - active -> suspended (reversible)
+        - active -> revoked (permanent)
+        - suspended -> active (reactivate)
+        - suspended -> revoked (permanent)
+        - revoked -> (terminal, no transitions out)
+
+    Owner:
+      type: object
+      required: [name, contact, jurisdiction]
+      properties:
+        entity_id:
+          type: string
+        name:
+          type: string
+        contact:
+          type: string
+          format: email
+        jurisdiction:
+          type: string
+          description: ISO 3166-1 alpha-2
+
+    Issuer:
+      type: object
+      description: The registry/PSP that issued this agent identity
+      properties:
+        issuer_id:
+          type: string
+        issuer_did:
+          type: string
+          description: Issuer's own DID for cross-registry resolution
+          examples: ["did:web:registry.example.com"]
+        name:
+          type: string
+        jwks_uri:
+          type: string
+          format: uri
+        trust_framework:
+          type: string
+          enum: [visa-tap, google-ap2, skyfire-kya, custom]
+
+    # ── Capabilities ────────────────────────────────────────
+
+    Capabilities:
+      type: object
+      properties:
+        intents:
+          type: array
+          description: |
+            Maps to Visa TAP Agent Intent tags.
+            - browse: agent retrieves product/service details
+            - purchase: agent executes a payment transaction
+            - subscribe: agent creates recurring payment
+            - return: agent initiates return/refund
+            - negotiate: agent performs B2B price negotiation
+          items:
+            type: string
+            enum: [browse, purchase, subscribe, return, negotiate]
+        commerce:
+          type: object
+          properties:
+            protocols_supported:
+              type: array
+              items:
+                type: string
+                enum: [mpp, ucp, acp, x402, ap2]
+            transport:
+              type: array
+              items:
+                type: string
+                enum: [http, mcp, a2a]
+        spending:
+          type: object
+          properties:
+            per_transaction_limit:
+              type: string
+            daily_limit:
+              type: string
+            monthly_limit:
+              type: string
+            currencies:
+              type: array
+              items:
+                type: string
+            auto_approve_threshold:
+              type: string
+              description: Below this, no human approval needed (Google AP2 consent threshold)
+        allowed_categories:
+          type: array
+          items:
+            type: string
+        blocked_categories:
+          type: array
+          items:
+            type: string
+        geo:
+          type: object
+          properties:
+            allowed_countries:
+              type: array
+              items:
+                type: string
+            blocked_countries:
+              type: array
+              items:
+                type: string
+
+    # ── Delegation ──────────────────────────────────────────
+
+    Delegation:
+      type: object
+      description: |
+        Who authorized this agent and what it's allowed to do.
+        Combines Visa TAP consumer recognition, Google AP2 cart mandate,
+        and W3C DID-based consumer identity.
+      properties:
+
+        consumer:
+          type: object
+          description: |
+            The human or organization the agent acts for.
+            Uses W3C DID for portable identity across registries.
+          properties:
+            consumer_id:
+              type: string
+              examples: [usr_vinit_42]
+            consumer_did:
+              type: string
+              description: |
+                W3C DID for the consumer. Resolves to a DID Document
+                containing authentication methods and service endpoints.
+              examples: ["did:web:idp.example.com:users:vinit_42"]
+            verified:
+              type: boolean
+              description: Identity provider has verified this consumer
+            identity_provider:
+              type: string
+              description: IdP that verified the consumer
+              examples: [auth0]
+            authentication_method:
+              type: string
+              description: How the consumer authenticated with the IdP
+              enum: [password, webauthn, passkey, biometric, mfa, sso]
+            verifiable_credential_uri:
+              type: string
+              format: uri
+              description: |
+                URI to a W3C Verifiable Credential proving consumer identity.
+                Merchant can independently verify without calling the registry.
+
+        consent:
+          type: object
+          description: |
+            What the agent is authorized to do. Includes Google AP2 cart mandate
+            for cryptographic proof of user consent.
+          properties:
+            type:
+              type: string
+              enum: [delegated, autonomous, supervised]
+              description: |
+                - delegated: human authorized specific actions
+                - autonomous: agent self-authorized within spending limits
+                - supervised: human approves each transaction in real-time
+            scope:
+              type: string
+              description: Colon-separated permission scope
+              examples: ["purchase:digital_services"]
+            granted_at:
+              type: string
+              format: date-time
+            expires_at:
+              type: string
+              format: date-time
+            revocation_uri:
+              type: string
+              format: uri
+              description: Endpoint to revoke this consent
+            cart_mandate:
+              $ref: '#/components/schemas/CartMandate'
+
+        merchant_context:
+          type: array
+          description: |
+            Per-merchant consumer recognition data (Visa TAP).
+            Each entry maps to a specific merchant domain.
+            Enables returning-customer detection, loyalty integration,
+            and card-on-file matching without the agent authenticating
+            through the merchant's login flow.
+          items:
+            $ref: '#/components/schemas/MerchantContext'
+
+    CartMandate:
+      type: object
+      description: |
+        Google AP2 Cart Mandate — cryptographic proof that the consumer
+        consented to the agent making purchases within defined constraints.
+        The mandate is signed by the consumer's key (from their DID) and
+        verified by the merchant or payment provider.
+      properties:
+        mandate_id:
+          type: string
+          examples: [mandate_abc123]
+        signature:
+          type: string
+          description: |
+            Consumer's cryptographic signature over the mandate scope.
+            Signed with the consumer's private key (from consumer_did).
+            Merchant verifies using consumer's public key from DID Document.
+          examples: [base64url-ed25519-signature-over-mandate]
+        signed_by:
+          type: string
+          description: DID of the signer (must match consumer_did)
+          examples: ["did:web:idp.example.com:users:vinit_42"]
+        scope:
+          type: string
+          description: |
+            What this mandate authorizes. Format: action:category:constraint.
+            Examples:
+            - purchase:digital_services:max_1000_usd
+            - purchase:any:max_100_usd_per_txn
+            - subscribe:saas:max_500_usd_monthly
+          examples: ["purchase:digital_services:max_1000_usd"]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        revoked:
+          type: boolean
+          default: false
+
+    MerchantContext:
+      type: object
+      description: |
+        Per-merchant consumer recognition (Visa TAP).
+        Enables the merchant to:
+        1. Match agent to existing customer account (loyalty_id)
+        2. Recognize returning customers (device_fingerprint, prior_interaction)
+        3. Pre-fill payment (payment_account_reference, network_token_id)
+        4. Apply geo restrictions (location)
+      properties:
+        merchant_domain:
+          type: string
+          description: Merchant domain this context applies to
+          examples: [shop.merchant.com]
+        loyalty_id:
+          type: string
+          description: Consumer's loyalty/membership ID with this merchant
+          examples: [LOY-12345]
+        payment_account_reference:
+          type: string
+          description: |
+            Visa Payment Account Reference (PAR).
+            Links to the consumer's card-on-file with this merchant
+            without exposing the actual card number.
+          examples: [PAR-V-abc123]
+        network_token_id:
+          type: string
+          description: |
+            Network token ID for card-on-file (Visa/Mastercard token).
+            Enables the merchant to charge the stored card without
+            the agent carrying raw card data.
+          examples: [DNITHE28238]
+        device_fingerprint:
+          type: string
+          description: Device identifier for returning-customer detection
+          examples: [fp_abc123]
+        prior_interaction:
+          type: boolean
+          description: Has this consumer purchased from this merchant before?
+        session_count:
+          type: integer
+          description: Number of prior agent sessions with this merchant
+        last_interaction:
+          type: string
+          format: date-time
+          description: When the agent last interacted with this merchant
+        location:
+          type: object
+          description: Consumer location for geo-restriction checks
+          properties:
+            country:
+              type: string
+              description: ISO 3166-1 alpha-2
+              examples: [US]
+            postal_code:
+              type: string
+              examples: ["94105"]
+            region:
+              type: string
+              description: State/province
+              examples: [CA]
+
+    # ── Trust ───────────────────────────────────────────────
+
+    TrustLevel:
+      type: string
+      enum: [unverified, basic, verified, premium]
+
+    TrustProfile:
+      type: object
+      properties:
+        trust_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        trust_level:
+          $ref: '#/components/schemas/TrustLevel'
+        kya:
+          type: object
+          description: Skyfire Know-Your-Agent verification status
+          properties:
+            status:
+              type: string
+              enum: [pending, in_review, approved, suspended, revoked]
+            verified_at:
+              type: string
+              format: date-time
+            next_review:
+              type: string
+              format: date-time
+            checks_passed:
+              type: array
+              items:
+                type: string
+            checks_failed:
+              type: array
+              items:
+                type: string
+        compliance:
+          type: object
+          properties:
+            psd2_sca_exempt:
+              type: boolean
+              description: EU PSD2 Strong Customer Authentication exemption
+            pci_dss_compliant:
+              type: boolean
+            gdpr_data_processing:
+              type: string
+              enum: [compliant, non_compliant, not_applicable]
+            aml_screening:
+              type: string
+              enum: [passed, failed, pending]
+        audit:
+          type: object
+          properties:
+            total_transactions:
+              type: integer
+            total_volume:
+              type: string
+            first_transaction:
+              type: string
+              format: date-time
+            last_transaction:
+              type: string
+              format: date-time
+            dispute_rate:
+              type: string
+            chargeback_count:
+              type: integer
+
+    # ── Federation ──────────────────────────────────────────
+
+    FederationLink:
+      type: object
+      properties:
+        registry:
+          type: string
+          enum: [visa-tap, google-ap2, skyfire-kya, custom]
+        external_id:
+          type: string
+          description: Agent's ID in the external registry
+        external_did:
+          type: string
+          description: Agent's DID in the external registry (for cross-resolution)
+        status:
+          type: string
+          enum: [pending, linked, unlinked, revoked]
+        linked_at:
+          type: string
+          format: date-time
+        registry_uri:
+          type: string
+          format: uri
+
+    # ── Payment Methods ─────────────────────────────────────
+
+    PaymentMethodRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [card, stablecoin, lightning, bank_account]
+        brand:
+          type: string
+          description: Card brand (required for type=card)
+        last4:
+          type: string
+          description: Last 4 digits (required for type=card)
+        expiry:
+          type: string
+          description: Card expiry MM/YY (required for type=card)
+        spending_limit:
+          type: string
+          description: Max spend in base units
+        network:
+          type: string
+          description: For crypto — ethereum, solana, bitcoin
+        address:
+          type: string
+          description: For crypto — wallet address
+
+    AddCardResponse:
+      type: object
+      description: |
+        Response after adding a payment method.
+        Includes the wallet_id (auto-created on first card).
+      properties:
+        payment_method_id:
+          type: string
+          examples: [pm_visa_4242]
+        wallet_id:
+          type: string
+          description: |
+            Auto-created on first payment method.
+            Returned for reference but callers do not need to track it.
+          examples: [wallet_x1y2z3a4b5c6]
+        wallet_created:
+          type: boolean
+          description: True if this call created the wallet (first card)
+        type:
+          type: string
+          enum: [card, stablecoin, lightning, bank_account]
+        brand:
+          type: string
+        last4:
+          type: string
+        expiry:
+          type: string
+        network:
+          type: string
+        address:
+          type: string
+        tokenized:
+          type: boolean
+          description: Network token (Visa/MC), not raw PAN
+        payment_account_reference:
+          type: string
+          description: Visa PAR for card-on-file recognition
+        network_token_id:
+          type: string
+          description: Network token ID for tokenized cards
+        spending_limit:
+          type: string
+        is_default:
+          type: boolean
+          description: True for the first card added
+
+    PaymentMethod:
+      type: object
+      properties:
+        payment_method_id:
+          type: string
+        type:
+          type: string
+          enum: [card, stablecoin, lightning, bank_account]
+        brand:
+          type: string
+        last4:
+          type: string
+        expiry:
+          type: string
+        network:
+          type: string
+        address:
+          type: string
+        tokenized:
+          type: boolean
+          description: Network token (Visa/MC), not raw PAN
+        payment_account_reference:
+          type: string
+          description: Visa PAR for card-on-file recognition
+        network_token_id:
+          type: string
+          description: Network token ID for tokenized cards
+        spending_limit:
+          type: string
+        is_default:
+          type: boolean
+
+    # ── Discovery & Signatures ──────────────────────────────
+
+    RegistryDiscovery:
+      type: object
+      properties:
+        registry_id:
+          type: string
+        registry_did:
+          type: string
+          description: Registry's own DID for cross-registry trust
+          examples: ["did:web:registry.example.com"]
+        name:
+          type: string
+        version:
+          type: string
+        did_method:
+          type: string
+          description: DID method used for agent identities
+          examples: ["did:web"]
+        endpoints:
+          type: object
+          properties:
+            agents:
+              type: string
+              format: uri
+            cards:
+              type: string
+              format: uri
+            keys:
+              type: string
+              format: uri
+            jwks:
+              type: string
+              format: uri
+        trust_frameworks:
+          type: array
+          items:
+            type: string
+        protocols_supported:
+          type: array
+          items:
+            type: string
+        federated_with:
+          type: array
+          items:
+            type: string
+            format: uri
+
+    Jwks:
+      type: object
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              kty:
+                type: string
+                examples: [OKP]
+              kid:
+                type: string
+                examples: [kid_agent_a1b2c3_2026Q2]
+              use:
+                type: string
+                enum: [sig]
+              alg:
+                type: string
+                examples: [EdDSA]
+              crv:
+                type: string
+                examples: [Ed25519]
+              x:
+                type: string
+
+    KeyWithContext:
+      type: object
+      description: Single public key with owning agent context
+      properties:
+        kid:
+          type: string
+        kty:
+          type: string
+        alg:
+          type: string
+        crv:
+          type: string
+        x:
+          type: string
+        agent_id:
+          type: string
+        agent_did:
+          type: string
+        trust_level:
+          $ref: '#/components/schemas/TrustLevel'
+        status:
+          type: string
+          enum: [active, rotated, revoked]
+        expires_at:
+          type: string
+          format: date-time
+
+    SigningKey:
+      type: object
+      description: |
+        Agent's signing key for HTTP Message Signatures (RFC 9421).
+        Used by Visa TAP for agent intent + payment signatures.
+      properties:
+        kid:
+          type: string
+        algorithm:
+          type: string
+          enum: [ed25519, ecdsa-p256, rsa-pss]
+        public_key:
+          type: string
+        signature_components:
+          type: array
+          description: |
+            HTTP Message Signature components this key signs (RFC 9421).
+            Matches Visa TAP specification:
+            - @authority: merchant domain (prevents cross-site replay)
+            - @path: resource being accessed (binds signature to specific resource)
+            - @method: HTTP method (GET vs POST distinction)
+            - signature-agent: agent DID (identifies the signer)
+            - created: timestamp (prevents delayed replay)
+            - nonce: unique value (prevents immediate replay)
+            - tag: Visa TAP intent classification (browsing or payment)
+          items:
+            type: string
+          examples:
+            -
+              - "@authority"
+              - "@path"
+              - "@method"
+              - "signature-agent"
+              - "created"
+              - "nonce"
+              - "tag"
+        status:
+          type: string
+          enum: [active, rotated, revoked]
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    KeyRotationRequest:
+      type: object
+      required: [algorithm, public_key]
+      properties:
+        algorithm:
+          type: string
+          enum: [ed25519, ecdsa-p256, rsa-pss]
+        public_key:
+          type: string
+
+    # ── Errors ──────────────────────────────────────────────
+
+    ProblemDetail:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    NotFound:
+      description: Not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
