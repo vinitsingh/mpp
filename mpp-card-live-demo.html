@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MPP · Card payment · Live demo</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-secondary: #f5f4ef;
+    --bg-tertiary: #faf9f5;
+    --text-primary: #1a1a1a;
+    --text-secondary: #5f5e5a;
+    --text-tertiary: #888780;
+    --border-tertiary: rgba(0,0,0,0.12);
+    --border-secondary: rgba(0,0,0,0.25);
+    --color-info-bg: #E6F1FB;
+    --color-info-text: #0C447C;
+    --color-success-bg: #EAF3DE;
+    --color-success-text: #27500A;
+    --color-danger-bg: #FCEBEB;
+    --color-danger-text: #791F1F;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a1a;
+      --bg-secondary: #242424;
+      --bg-tertiary: #141414;
+      --text-primary: #f0f0f0;
+      --text-secondary: #a8a8a8;
+      --text-tertiary: #777;
+      --border-tertiary: rgba(255,255,255,0.12);
+      --border-secondary: rgba(255,255,255,0.25);
+      --color-info-bg: #0C447C;
+      --color-info-text: #B5D4F4;
+      --color-success-bg: #27500A;
+      --color-success-text: #C0DD97;
+      --color-danger-bg: #501313;
+      --color-danger-text: #F09595;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-tertiary); color: var(--text-primary); font-family: var(--font-sans); }
+  body { padding: 2rem 1rem; }
+  .page { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 500; margin: 0 0 4px; }
+  .subtitle { color: var(--text-secondary); font-size: 14px; margin: 0 0 1.5rem; }
+  h2 { font-size: 14px; font-weight: 500; color: var(--text-secondary); margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  button, input, select, textarea {
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--text-primary);
+  }
+  input, select, textarea {
+    background: var(--bg);
+    border: 0.5px solid var(--border-tertiary);
+    border-radius: var(--radius-md);
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    width: 100%;
+  }
+  textarea { font-family: var(--font-mono); font-size: 12px; resize: vertical; min-height: 80px; }
+  input:hover, select:hover, textarea:hover { border-color: var(--border-secondary); }
+  input:focus, select:focus, textarea:focus { border-color: var(--border-secondary); box-shadow: 0 0 0 3px rgba(99,153,221,0.15); }
+  button {
+    background: transparent;
+    border: 0.5px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.05s;
+  }
+  button:hover { background: var(--bg-secondary); }
+  button:active { transform: scale(0.98); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .panel { background: var(--bg-secondary); border-radius: var(--radius-lg); padding: 16px; margin-bottom: 14px; }
+  .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px 14px; align-items: center; margin-bottom: 10px; }
+  .row label { font-size: 12px; color: var(--text-secondary); }
+  .row input, .row select { font-family: var(--font-mono); font-size: 12px; }
+
+  .endpoint { display: grid; grid-template-columns: 100px 1fr; gap: 10px 14px; align-items: start; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 0.5px solid var(--border-tertiary); }
+  .endpoint:last-child { border-bottom: none; padding-bottom: 0; }
+  .endpoint label { font-size: 12px; color: var(--text-secondary); padding-top: 8px; }
+  .ep-method-path { display: grid; grid-template-columns: 100px 1fr; gap: 8px; margin-bottom: 8px; }
+  .ep-title { font-size: 13px; font-weight: 500; color: var(--text-primary); margin: 0 0 6px; }
+  .ep-hint { font-size: 11px; color: var(--text-tertiary); margin: 0 0 8px; }
+
+  details summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); padding: 4px 0; user-select: none; }
+  details[open] summary { margin-bottom: 8px; }
+
+  .mpp-row-btns { display: flex; gap: 8px; justify-content: flex-end; }
+  .mpp-row-btns button { font-size: 13px; padding: 7px 16px; }
+  .mpp-run { background: var(--text-primary) !important; color: var(--bg) !important; border-color: var(--text-primary) !important; }
+  .mpp-run:hover { opacity: 0.9; }
+
+  .mpp-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--text-secondary); padding: 0 4px; margin-bottom: 8px; }
+  .mpp-legend-item { display: flex; align-items: center; gap: 6px; }
+  .mpp-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .mpp-term { background: #0d0d0d; border-radius: var(--radius-lg); border: 0.5px solid var(--border-tertiary); overflow: hidden; font-family: var(--font-mono); }
+  .mpp-term-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: #1a1a1a; border-bottom: 0.5px solid #2a2a2a; }
+  .mpp-dots { display: flex; gap: 6px; }
+  .mpp-dot { width: 10px; height: 10px; border-radius: 50%; background: #3a3a3a; }
+  .mpp-meta { font-size: 11px; color: #888; }
+  .mpp-screen { padding: 14px 16px; min-height: 380px; max-height: 560px; overflow-y: auto; font-size: 12.5px; line-height: 1.6; color: #d4d4d4; }
+  .mpp-screen::-webkit-scrollbar { width: 8px; }
+  .mpp-screen::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 4px; }
+  .mpp-line { white-space: pre-wrap; word-break: break-word; }
+  .mpp-prompt { color: #7fb069; }
+  .mpp-cmd { color: #e8e8e8; }
+  .mpp-dim { color: #707070; }
+  .mpp-ok { color: #7fb069; }
+  .mpp-warn { color: #e0a458; }
+  .mpp-err { color: #e06c75; }
+  .mpp-key { color: #61afef; }
+  .mpp-str { color: #c678dd; }
+  .mpp-num { color: #d19a66; }
+  .mpp-hdr { color: #56b6c2; }
+  .mpp-tag-agent { background: #1a3a5c; color: #82b5e6; padding: 1px 7px; border-radius: 3px; font-size: 11px; margin-right: 6px; }
+  .mpp-tag-psp { background: #5c1a3a; color: #e682b5; padding: 1px 7px; border-radius: 3px; font-size: 11px; margin-right: 6px; }
+  .mpp-tag-merchant { background: #2d4a1a; color: #a8d87b; padding: 1px 7px; border-radius: 3px; font-size: 11px; margin-right: 6px; }
+
+  .mpp-status { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--text-secondary); padding: 0 4px; margin-bottom: 10px; }
+  .mpp-pill { padding: 2px 10px; border-radius: 10px; font-size: 11px; font-family: var(--font-mono); }
+  .mpp-pill-idle { background: var(--bg-secondary); color: var(--text-tertiary); }
+  .mpp-pill-run { background: var(--color-info-bg); color: var(--color-info-text); }
+  .mpp-pill-done { background: var(--color-success-bg); color: var(--color-success-text); }
+  .mpp-pill-err { background: var(--color-danger-bg); color: var(--color-danger-text); }
+
+  .mode-switch { display: inline-flex; background: var(--bg); border: 0.5px solid var(--border-tertiary); border-radius: var(--radius-md); padding: 2px; margin-bottom: 14px; }
+  .mode-switch button { border: none; background: transparent; padding: 6px 14px; font-size: 12px; border-radius: 6px; color: var(--text-secondary); }
+  .mode-switch button.active { background: var(--text-primary); color: var(--bg); }
+
+  footer { margin-top: 2rem; color: var(--text-tertiary); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>MPP · Card payment flow · Live demo</h1>
+  <p class="subtitle">Agent has a card on file → receives 402 → exchanges card_id for a one-time token at /token → retries resource with token credential.</p>
+
+  <div class="mode-switch">
+    <button id="mode-live" class="active" type="button">Live (real fetch)</button>
+    <button id="mode-sim" type="button">Simulated</button>
+  </div>
+
+  <div class="panel">
+    <h2>Request parameters</h2>
+    <div class="row">
+      <label for="mpp-card-id">Card ID</label>
+      <input id="mpp-card-id" type="text" value="card_9f3a2b1c8d4e" />
+    </div>
+    <div class="row">
+      <label for="mpp-amount">Amount</label>
+      <input id="mpp-amount" type="text" value="0.25" />
+    </div>
+    <div class="row">
+      <label for="mpp-currency">Currency</label>
+      <select id="mpp-currency">
+        <option>USD</option><option>EUR</option><option>GBP</option><option>INR</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Endpoints</h2>
+
+    <div class="endpoint">
+      <label>1. Resource</label>
+      <div>
+        <p class="ep-title">Agent hits the merchant resource server (expects 402)</p>
+        <div class="ep-method-path">
+          <select id="res-method"><option>GET</option><option>POST</option><option>PUT</option></select>
+          <input id="res-url" type="text" value="http://localhost:8080/api/resource" />
+        </div>
+        <details>
+          <summary>Optional request body (POST/PUT)</summary>
+          <textarea id="res-body" placeholder='{"prompt": "hello"}'></textarea>
+        </details>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <label>2. Token</label>
+      <div>
+        <p class="ep-title">PSP /token — exchanges card_id for a one-time token</p>
+        <p class="ep-hint">Placeholders: <code>{card_id}</code>, <code>{amount}</code>, <code>{currency}</code>, <code>{challenge_id}</code>, <code>{merchant_account}</code> — substituted before send.</p>
+        <div class="ep-method-path">
+          <select id="tok-method"><option>POST</option><option>GET</option></select>
+          <input id="tok-url" type="text" value="http://localhost:8080/psp/v1/tokens" />
+        </div>
+        <details open>
+          <summary>Request body template</summary>
+          <textarea id="tok-body">{
+  "cardId": "{card_id}",
+  "type": "single_use",
+  "amount": "{amount}",
+  "currency": "{currency}",
+  "challengeId": "{challenge_id}",
+  "merchantAccount": "{merchant_account}"
+}</textarea>
+        </details>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <label>3. Token field</label>
+      <div>
+        <p class="ep-title">Where to find the token in /token's response</p>
+        <p class="ep-hint">Dot path into JSON (e.g. <code>token</code> or <code>data.token</code>).</p>
+        <input id="tok-path" type="text" value="token" />
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <label>4. Auth header</label>
+      <div>
+        <p class="ep-title">How to attach the token on the retry call</p>
+        <p class="ep-hint">Placeholder: <code>{token}</code>. Default follows the MPP spec.</p>
+        <div class="ep-method-path">
+          <input id="auth-header-name" type="text" value="Authorization" />
+          <input id="auth-header-value" type="text" value="Payment scheme=card; token={token}" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mpp-legend">
+    <div class="mpp-legend-item"><span class="mpp-legend-dot" style="background:#82b5e6;"></span>agent</div>
+    <div class="mpp-legend-item"><span class="mpp-legend-dot" style="background:#e682b5;"></span>psp</div>
+    <div class="mpp-legend-item"><span class="mpp-legend-dot" style="background:#a8d87b;"></span>merchant</div>
+  </div>
+
+  <div class="mpp-status">
+    <span>Status:</span>
+    <span id="mpp-pill" class="mpp-pill mpp-pill-idle">idle</span>
+    <span id="mpp-step" style="margin-left:auto;"></span>
+  </div>
+
+  <div class="mpp-row-btns" style="margin-bottom: 14px;">
+    <button id="mpp-restart" type="button">Clear terminal</button>
+    <button id="mpp-run" class="mpp-run" type="button">Run demo</button>
+  </div>
+
+  <div class="mpp-term">
+    <div class="mpp-term-bar">
+      <div class="mpp-dots"><span class="mpp-dot"></span><span class="mpp-dot"></span><span class="mpp-dot"></span></div>
+      <div class="mpp-meta">mpp-card-demo — live</div>
+      <div style="width: 40px;"></div>
+    </div>
+    <div id="mpp-screen" class="mpp-screen"></div>
+  </div>
+
+  <footer>Live mode hits your actual endpoints · simulated mode uses fake data · CORS must be enabled on your API</footer>
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const screen = $('mpp-screen');
+  const runBtn = $('mpp-run');
+  const restartBtn = $('mpp-restart');
+  const pill = $('mpp-pill');
+  const stepEl = $('mpp-step');
+  const modeLiveBtn = $('mode-live');
+  const modeSimBtn = $('mode-sim');
+
+  let running = false;
+  let mode = 'live';
+
+  modeLiveBtn.addEventListener('click', () => { mode = 'live'; modeLiveBtn.classList.add('active'); modeSimBtn.classList.remove('active'); });
+  modeSimBtn.addEventListener('click', () => { mode = 'sim'; modeSimBtn.classList.add('active'); modeLiveBtn.classList.remove('active'); });
+
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  function setPill(state, label) {
+    pill.className = 'mpp-pill mpp-pill-' + state;
+    pill.textContent = label;
+  }
+
+  function esc(s) {
+    if (s == null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function line(html) {
+    const div = document.createElement('div');
+    div.className = 'mpp-line';
+    div.innerHTML = html;
+    screen.appendChild(div);
+    screen.scrollTop = screen.scrollHeight;
+    return div;
+  }
+
+  function clearScreen() { screen.innerHTML = ''; }
+
+  function banner() {
+    line('<span class="mpp-dim">mpp-card-demo · ' + new Date().toISOString() + ' · mode=' + mode + '</span>');
+    line('&nbsp;');
+  }
+
+  const TAG_AGENT = '<span class="mpp-tag-agent">agent</span>';
+  const TAG_PSP = '<span class="mpp-tag-psp">psp</span>';
+  const TAG_MERCHANT = '<span class="mpp-tag-merchant">merchant</span>';
+
+  function makeHex(len) {
+    const chars = '0123456789abcdef';
+    let out = '';
+    for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * 16)];
+    return out;
+  }
+
+  function formatJson(obj) {
+    if (obj == null) return '';
+    const str = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    return str.split('\n').map(l => esc(l)).join('\n');
+  }
+
+  function colorizeJsonLine(s) {
+    // simple key/string/number colorization for display
+    return esc(s)
+      .replace(/(&quot;[^&]*?&quot;)(\s*:)/g, '<span class="mpp-key">$1</span>$2')
+      .replace(/:\s*(&quot;[^&]*?&quot;)/g, ': <span class="mpp-str">$1</span>')
+      .replace(/:\s*(-?\d+\.?\d*)/g, ': <span class="mpp-num">$1</span>')
+      .replace(/:\s*(true|false|null)/g, ': <span class="mpp-num">$1</span>');
+  }
+
+  function dumpBlock(tag, obj) {
+    const str = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    const lines = str.split('\n');
+    for (const l of lines) {
+      line(tag + colorizeJsonLine(l));
+    }
+  }
+
+  function getByPath(obj, path) {
+    if (!path) return obj;
+    return path.split('.').reduce((acc, k) => (acc == null ? acc : acc[k]), obj);
+  }
+
+  function fillTemplate(str, vars) {
+    return str.replace(/\{(\w+)\}/g, (_, k) => vars[k] != null ? vars[k] : '{' + k + '}');
+  }
+
+  function parseChallenge(resp402Body) {
+    // Try to pull fields from an MPP-style 402 body; fall back to generated values
+    try {
+      const obj = typeof resp402Body === 'string' ? JSON.parse(resp402Body) : resp402Body;
+      if (!obj) return null;
+      return {
+        challenge_id: obj.challenge_id || obj.challengeId || null,
+        request_id: obj.request_id || obj.requestId || null,
+        merchant_account: obj.methods && obj.methods[0] && (obj.methods[0].merchant_account || obj.methods[0].merchantAccount) || null,
+        psp: obj.methods && obj.methods[0] && obj.methods[0].psp || null,
+        raw: obj
+      };
+    } catch(e) { return null; }
+  }
+
+  async function doFetch(tag, method, url, body, headers) {
+    const t0 = performance.now();
+    line(tag + '<span class="mpp-hdr">→</span> <span class="mpp-cmd">' + esc(method) + ' ' + esc(url) + '</span>');
+    if (headers) {
+      for (const [k, v] of Object.entries(headers)) {
+        line(tag + '<span class="mpp-dim">  ' + esc(k.toLowerCase()) + ':</span> <span class="mpp-str">' + esc(v) + '</span>');
+      }
+    }
+    if (body != null) {
+      line(tag + '<span class="mpp-dim">  body:</span>');
+      dumpBlock(tag + '  ', body);
+    }
+    line('&nbsp;');
+    let res, text, json = null, ok = false, status = 0, duration = 0;
+    try {
+      const init = { method, headers: headers || {} };
+      if (body != null && method !== 'GET') {
+        init.headers['Content-Type'] = init.headers['Content-Type'] || 'application/json';
+        init.body = typeof body === 'string' ? body : JSON.stringify(body);
+      }
+      res = await fetch(url, init);
+      duration = performance.now() - t0;
+      status = res.status;
+      ok = res.ok || status === 402; // 402 is expected in step 1
+      text = await res.text();
+      try { json = text ? JSON.parse(text) : null; } catch(e) { /* not json */ }
+
+      const statusClass = status < 300 ? 'mpp-ok' : (status < 400 ? 'mpp-warn' : (status === 402 ? 'mpp-warn' : 'mpp-err'));
+      line(tag + '<span class="' + statusClass + '">← ' + status + ' ' + esc(res.statusText || '') + '</span> <span class="mpp-dim">(' + duration.toFixed(0) + 'ms)</span>');
+      // show selected response headers
+      const relevantHeaders = ['content-type', 'www-authenticate', 'payment-receipt', 'authorization'];
+      for (const h of relevantHeaders) {
+        const v = res.headers.get(h);
+        if (v) line(tag + '<span class="mpp-dim">  ' + h + ':</span> <span class="mpp-str">' + esc(v) + '</span>');
+      }
+      if (text) {
+        line(tag + '<span class="mpp-dim">  body:</span>');
+        dumpBlock(tag + '  ', json != null ? json : text);
+      }
+      line('&nbsp;');
+    } catch (err) {
+      duration = performance.now() - t0;
+      line(tag + '<span class="mpp-err">✗ network error</span> <span class="mpp-dim">(' + duration.toFixed(0) + 'ms)</span>');
+      line(tag + '<span class="mpp-err">  ' + esc(err.message || String(err)) + '</span>');
+      if (String(err).toLowerCase().includes('failed to fetch')) {
+        line(tag + '<span class="mpp-dim">  hint: check CORS, check server is running, check URL</span>');
+      }
+      line('&nbsp;');
+      return { ok: false, status: 0, text: '', json: null, error: err, duration };
+    }
+    return { ok, status, text, json, duration, headers: res.headers };
+  }
+
+  async function runLive() {
+    const cardId = $('mpp-card-id').value.trim() || 'card_unknown';
+    const amount = $('mpp-amount').value.trim() || '0';
+    const currency = $('mpp-currency').value;
+
+    const resMethod = $('res-method').value;
+    const resUrl = $('res-url').value.trim();
+    const resBodyRaw = $('res-body').value.trim();
+
+    const tokMethod = $('tok-method').value;
+    const tokUrl = $('tok-url').value.trim();
+    const tokBodyRaw = $('tok-body').value;
+    const tokPath = $('tok-path').value.trim();
+
+    const authHeaderName = $('auth-header-name').value.trim() || 'Authorization';
+    const authHeaderTemplate = $('auth-header-value').value;
+
+    // Step 1: agent hits merchant, expect 402
+    setPill('run', 'step 1 / 3');
+    stepEl.textContent = 'requesting resource (expecting 402)';
+    const resBody = resBodyRaw ? (() => { try { return JSON.parse(resBodyRaw); } catch(e) { return resBodyRaw; } })() : null;
+    const step1 = await doFetch(TAG_AGENT + TAG_MERCHANT, resMethod, resUrl, resBody, { 'Accept': 'application/json' });
+    if (step1.error) { setPill('err', 'network error'); stepEl.textContent = 'failed at step 1'; return; }
+
+    if (step1.status !== 402) {
+      if (step1.ok) {
+        line('<span class="mpp-warn">ℹ resource returned ' + step1.status + ' without payment — already authenticated?</span>');
+        line('&nbsp;');
+        setPill('done', 'complete');
+        stepEl.textContent = 'no payment required';
+        return;
+      }
+      line('<span class="mpp-err">✗ expected 402 Payment Required, got ' + step1.status + '</span>');
+      line('&nbsp;');
+      setPill('err', 'unexpected status');
+      stepEl.textContent = 'failed at step 1';
+      return;
+    }
+
+    const ch = parseChallenge(step1.json) || {};
+    const challenge_id = ch.challenge_id || 'chl_' + makeHex(14);
+    const merchant_account = ch.merchant_account || 'mer_' + makeHex(10);
+
+    line('<span class="mpp-ok">✓ got 402 · challenge_id=' + challenge_id + '</span>');
+    line('&nbsp;');
+
+    // Step 2: agent calls PSP /token
+    setPill('run', 'step 2 / 3');
+    stepEl.textContent = 'exchanging card_id for token';
+    const vars = { card_id: cardId, amount, currency, challenge_id, merchant_account };
+    const tokBodyFilled = fillTemplate(tokBodyRaw, vars);
+    let tokBody = null;
+    try { tokBody = tokBodyFilled ? JSON.parse(tokBodyFilled) : null; } catch(e) { tokBody = tokBodyFilled; }
+    const step2 = await doFetch(TAG_AGENT + TAG_PSP, tokMethod, tokUrl, tokBody, { 'Accept': 'application/json' });
+    if (step2.error || !step2.ok) {
+      setPill('err', 'token exchange failed');
+      stepEl.textContent = 'failed at step 2';
+      return;
+    }
+    const token = getByPath(step2.json, tokPath);
+    if (!token) {
+      line('<span class="mpp-err">✗ could not find token at path "' + tokPath + '" in response</span>');
+      line('&nbsp;');
+      setPill('err', 'token not found');
+      stepEl.textContent = 'failed at step 2';
+      return;
+    }
+    line('<span class="mpp-ok">✓ got token · ' + esc(String(token).slice(0, 24)) + '...</span>');
+    line('&nbsp;');
+
+    // Step 3: agent retries resource with auth header carrying token
+    setPill('run', 'step 3 / 3');
+    stepEl.textContent = 'retrying resource with token';
+    const authValue = fillTemplate(authHeaderTemplate, { token });
+    const retryHeaders = { 'Accept': 'application/json' };
+    retryHeaders[authHeaderName] = authValue;
+    const step3 = await doFetch(TAG_AGENT + TAG_MERCHANT, resMethod, resUrl, resBody, retryHeaders);
+    if (step3.error) { setPill('err', 'network error'); stepEl.textContent = 'failed at step 3'; return; }
+
+    if (step3.ok && step3.status !== 402) {
+      line('<span class="mpp-ok">✓ payment complete · charged ' + amount + ' ' + currency + ' to ' + cardId + '</span>');
+      line('&nbsp;');
+      setPill('done', 'complete');
+      stepEl.textContent = 'done';
+    } else {
+      line('<span class="mpp-err">✗ retry failed with status ' + step3.status + '</span>');
+      line('&nbsp;');
+      setPill('err', 'retry failed');
+      stepEl.textContent = 'failed at step 3';
+    }
+  }
+
+  async function runSim() {
+    const cardId = $('mpp-card-id').value.trim() || 'card_unknown';
+    const amount = $('mpp-amount').value.trim() || '0';
+    const currency = $('mpp-currency').value;
+    const resUrl = $('res-url').value.trim() || 'http://localhost:8080/api/resource';
+    const tokUrl = $('tok-url').value.trim() || 'http://localhost:8080/psp/v1/tokens';
+    const challenge_id = 'chl_' + makeHex(14);
+    const token = 'tok_' + makeHex(28);
+
+    setPill('run', 'step 1 / 3');
+    stepEl.textContent = 'requesting resource';
+    line(TAG_AGENT + '<span class="mpp-hdr">→</span> <span class="mpp-cmd">GET ' + esc(resUrl) + '</span>');
+    await sleep(350);
+    line(TAG_MERCHANT + '<span class="mpp-warn">← 402 Payment Required</span>');
+    line(TAG_MERCHANT + '<span class="mpp-dim">  www-authenticate:</span> <span class="mpp-str">Payment challenge="' + challenge_id + '"</span>');
+    line('&nbsp;');
+
+    setPill('run', 'step 2 / 3');
+    stepEl.textContent = 'exchanging for token';
+    line(TAG_AGENT + '<span class="mpp-hdr">→</span> <span class="mpp-cmd">POST ' + esc(tokUrl) + '</span>');
+    await sleep(500);
+    line(TAG_PSP + '<span class="mpp-ok">← 201 Created</span>');
+    line(TAG_PSP + '<span class="mpp-dim">  token:</span> <span class="mpp-str">' + token + '</span>');
+    line('&nbsp;');
+
+    setPill('run', 'step 3 / 3');
+    stepEl.textContent = 'retrying with token';
+    line(TAG_AGENT + '<span class="mpp-hdr">→</span> <span class="mpp-cmd">GET ' + esc(resUrl) + '</span>');
+    line(TAG_AGENT + '<span class="mpp-dim">  authorization:</span> <span class="mpp-str">Payment scheme=card; token=' + token.slice(0, 24) + '...</span>');
+    await sleep(500);
+    line(TAG_MERCHANT + '<span class="mpp-ok">← 200 OK</span>');
+    line('&nbsp;');
+    line('<span class="mpp-ok">✓ payment complete · charged ' + amount + ' ' + currency + ' to ' + cardId + '</span>');
+    line('&nbsp;');
+    setPill('done', 'complete');
+    stepEl.textContent = 'done';
+  }
+
+  async function run() {
+    if (running) return;
+    running = true;
+    runBtn.disabled = true;
+    clearScreen();
+    banner();
+    try {
+      if (mode === 'live') await runLive();
+      else await runSim();
+    } catch (err) {
+      line('<span class="mpp-err">✗ fatal: ' + esc(err.message || String(err)) + '</span>');
+      setPill('err', 'fatal');
+    }
+    running = false;
+    runBtn.disabled = false;
+  }
+
+  function reset() {
+    clearScreen();
+    line('<span class="mpp-prompt">mpp-demo $</span> <span class="mpp-dim">ready · click "Run demo"</span>');
+    setPill('idle', 'idle');
+    stepEl.textContent = '';
+  }
+
+  runBtn.addEventListener('click', run);
+  restartBtn.addEventListener('click', reset);
+  reset();
+})();
+</script>
+</body>
+</html>
