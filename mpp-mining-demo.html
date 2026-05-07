@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MPP demo · agent buys GPU compute</title>
+<style>
+  :root {
+    --bg-page: #faf9f5;
+    --bg-card: #ffffff;
+    --bg-soft: #f4f1ea;
+    --bg-soft2: #ebe8df;
+    --text: #1f1e1c;
+    --text-2: #5a5852;
+    --text-3: #8c8a82;
+    --border: rgba(0,0,0,0.10);
+    --border-2: rgba(0,0,0,0.18);
+    --info: #185fa5;
+    --info-bg: #e6f1fb;
+    --warn: #ba7517;
+    --warn-bg: #faeeda;
+    --ok: #3b6d11;
+    --ok-bg: #eaf3de;
+    --danger: #a32d2d;
+    --psp: #534ab7;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 24px;
+    background: var(--bg-page);
+    font-family: var(--font-sans);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .wrap { width: 100%; max-width: 1100px; }
+
+  .dx-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--bg-card); border-bottom: none;
+  }
+  .dx-brand { display: flex; align-items: center; gap: 10px; }
+  .dx-logo {
+    width: 24px; height: 24px; border-radius: 6px;
+    background: var(--text); color: var(--bg-card);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  }
+  .dx-name { font-size: 14px; font-weight: 600; }
+  .dx-name .sub {
+    color: var(--text-3); font-weight: 400; margin-left: 6px;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .dx-pulse { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); }
+  .dx-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); animation: dx-p 1.4s ease-in-out infinite; }
+  @keyframes dx-p { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .dx-shell {
+    display: grid; grid-template-columns: 1fr 250px;
+    border: 0.5px solid var(--border); background: var(--bg-card);
+  }
+  .dx-main { border-right: 0.5px solid var(--border); min-width: 0; }
+
+  .dx-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-bottom: 0.5px solid var(--border);
+  }
+  .dx-stat { padding: 12px 14px; border-right: 0.5px solid var(--border); min-width: 0; }
+  .dx-stat:last-child { border-right: none; }
+  .dx-stat .l { font-size: 10.5px; color: var(--text-2); text-transform: uppercase; letter-spacing: .05em; }
+  .dx-stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 4px; line-height: 1.1; }
+  .dx-stat .d { font-size: 10.5px; color: var(--text-3); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .dx-stat .v.up { color: var(--ok); }
+  .dx-stat .v.dn { color: var(--danger); }
+
+  .dx-actors {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    padding: 10px 14px;
+    border-bottom: 0.5px solid var(--border);
+    background: var(--bg-soft);
+  }
+  .dx-actor {
+    display: flex; align-items: center; gap: 8px; padding: 0 10px;
+    font-size: 12px; color: var(--text-2);
+    border-right: 0.5px solid var(--border);
+  }
+  .dx-actor:last-child { border-right: none; }
+  .dx-actor .badge {
+    width: 20px; height: 20px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 600; font-family: var(--font-mono);
+    color: #fff;
+  }
+  .dx-actor.agent .badge { background: var(--info); }
+  .dx-actor.psp   .badge { background: var(--psp); }
+  .dx-actor.res   .badge { background: var(--warn); }
+  .dx-actor .nm  { font-weight: 600; color: var(--text); }
+  .dx-actor .sub { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); margin-left: auto; }
+
+  .dx-mid { display: grid; grid-template-columns: 1fr 1.1fr; }
+  .dx-pane {
+    padding: 12px 14px; border-right: 0.5px solid var(--border);
+    min-height: 250px; display: flex; flex-direction: column; min-width: 0;
+  }
+  .dx-pane:last-child { border-right: none; }
+  .dx-pane h4 {
+    font-size: 11px; font-weight: 600; color: var(--text-2);
+    text-transform: uppercase; letter-spacing: .05em; margin: 0 0 8px;
+  }
+
+  .dx-chart { position: relative; flex: 1; min-height: 110px; }
+  .dx-chart svg { width: 100%; height: 100%; display: block; }
+  .dx-axis { font-family: var(--font-mono); font-size: 10px; fill: var(--text-3); }
+  .dx-line { fill: none; stroke: var(--info); stroke-width: 1.5; }
+  .dx-area { fill: var(--info-bg); opacity: .6; }
+
+  .dx-fleet { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; }
+  .dx-rig {
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 8px; align-items: center;
+    padding: 5px 10px; background: var(--bg-soft); border-radius: var(--radius-md);
+    font-size: 11px; font-family: var(--font-mono); transition: background .3s;
+  }
+  .dx-rig.new { background: var(--ok-bg); }
+  .dx-rig .pin { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+  .dx-rig.live .pin { background: var(--ok); animation: dx-p 1.6s ease-in-out infinite; }
+  .dx-rig .hash { color: var(--text-2); font-variant-numeric: tabular-nums; text-align: right; }
+
+  .dx-log {
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+    background: var(--bg-soft); border-radius: var(--radius-md);
+    padding: 10px 12px; flex: 1; overflow: hidden; min-height: 140px;
+    border: 0.5px solid var(--border);
+  }
+  .dx-log .ln {
+    display: grid; grid-template-columns: 38px 18px 1fr;
+    gap: 7px; align-items: center;
+    opacity: 0; transform: translateY(2px);
+    animation: dx-fi .25s ease forwards;
+    white-space: nowrap; overflow: hidden;
+  }
+  @keyframes dx-fi { to { opacity: 1; transform: none; } }
+  .dx-log .ts { color: var(--text-3); font-size: 10.5px; }
+  .dx-log .who {
+    width: 18px; height: 14px; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: #fff;
+  }
+  .dx-log .who.agent { background: var(--info); }
+  .dx-log .who.psp   { background: var(--psp); }
+  .dx-log .who.res   { background: var(--warn); }
+  .dx-log .who.gpu   { background: var(--ok); }
+  .dx-log .msg { overflow: hidden; text-overflow: ellipsis; }
+  .dx-log .agent-msg { color: var(--info); }
+  .dx-log .psp-msg   { color: var(--psp); }
+  .dx-log .res-msg   { color: var(--warn); }
+  .dx-log .gpu-msg   { color: var(--ok); }
+
+  .dx-bar { height: 5px; background: var(--bg-soft2); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .dx-bar > span { display: block; height: 100%; background: var(--info); width: 0; transition: width .3s ease; }
+  .dx-bmeta {
+    display: flex; justify-content: space-between;
+    font-size: 10.5px; color: var(--text-3);
+    font-family: var(--font-mono); margin-top: 4px;
+  }
+
+  .dx-card {
+    margin-top: 8px;
+    padding: 10px 12px;
+    background: var(--bg-soft);
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 11px; line-height: 1.6;
+    color: var(--text-2);
+  }
+  .dx-card .lbl { color: var(--text-3); }
+  .dx-card .pen { color: var(--text-3); font-style: italic; }
+  .dx-card .ok-val { color: var(--ok); }
+  .dx-card .pri    { color: var(--text); }
+
+  .dx-rail {
+    padding: 16px 14px;
+    display: flex; flex-direction: column;
+    background: var(--bg-card);
+  }
+  .dx-rail h4 {
+    font-size: 11px; font-weight: 600; color: var(--text-2);
+    text-transform: uppercase; letter-spacing: .05em; margin: 0 0 12px;
+  }
+  .dx-step {
+    display: grid; grid-template-columns: 24px 1fr; gap: 10px;
+    padding: 6px 0; position: relative;
+  }
+  .dx-step:not(:last-child)::after {
+    content: ""; position: absolute;
+    left: 11px; top: 30px; bottom: -6px;
+    width: 1px; background: var(--border);
+  }
+  .dx-step.done:not(:last-child)::after { background: var(--ok); }
+  .dx-step .num {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--bg-soft); border: 0.5px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; color: var(--text-3);
+    font-variant-numeric: tabular-nums; transition: all .3s; z-index: 1;
+  }
+  .dx-step.active .num { background: var(--info); border-color: var(--info); color: #fff; }
+  .dx-step.done   .num { background: var(--ok);   border-color: var(--ok);   color: #fff; }
+  .dx-step .body { padding-top: 1px; min-width: 0; }
+  .dx-step .ttl  {
+    font-size: 12.5px; font-weight: 600;
+    color: var(--text-3); transition: color .3s; line-height: 1.3;
+  }
+  .dx-step.active .ttl, .dx-step.done .ttl { color: var(--text); }
+  .dx-step .desc { font-size: 11px; color: var(--text-3); margin-top: 2px; line-height: 1.4; }
+  .dx-step.active .desc { color: var(--text-2); }
+  .dx-step .who-pill {
+    display: inline-block;
+    font-size: 9px; padding: 1px 5px; border-radius: 3px;
+    font-family: var(--font-mono); font-weight: 700;
+    color: #fff; margin-right: 4px; vertical-align: 1px;
+  }
+  .dx-step .who-pill.a { background: var(--info); }
+  .dx-step .who-pill.p { background: var(--psp); }
+  .dx-step .who-pill.r { background: var(--warn); }
+
+  .dx-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px;
+    border: 0.5px solid var(--border);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    background: var(--bg-soft);
+    font-size: 11.5px; color: var(--text-2);
+  }
+  .dx-foot .step {
+    font-family: var(--font-mono); color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .dx-prog {
+    flex: 1; height: 3px;
+    background: var(--bg-soft2); border-radius: 2px;
+    margin: 0 14px; overflow: hidden;
+  }
+  .dx-prog > span { display: block; height: 100%; background: var(--info); width: 0; transition: width .1s linear; }
+
+  .dx-controls { display: flex; gap: 8px; margin-top: 12px; }
+  .dx-controls button {
+    font-family: var(--font-sans); font-size: 12px;
+    padding: 6px 14px;
+    background: var(--bg-card);
+    border: 0.5px solid var(--border-2);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .dx-controls button:hover { background: var(--bg-soft); }
+  .dx-controls button:active { transform: scale(0.98); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="dx-head">
+    <div class="dx-brand">
+      <div class="dx-logo">M</div>
+      <div class="dx-name">miner-agent-01<span class="sub">SHA-256 · pool: f2pool.btc</span></div>
+    </div>
+    <div class="dx-pulse"><span class="dx-dot"></span><span id="dxPhase">scanning</span></div>
+  </div>
+
+  <div class="dx-shell">
+    <div class="dx-main">
+      <div class="dx-grid">
+        <div class="dx-stat">
+          <div class="l">Hashrate</div>
+          <div class="v up" id="kHash">0.08 <span style="font-size:13px;color:var(--text-3)">TH/s</span></div>
+          <div class="d" id="kHashDelta">below target</div>
+        </div>
+        <div class="dx-stat">
+          <div class="l">GPUs</div>
+          <div class="v" id="kGpu">0</div>
+          <div class="d" id="kGpuDelta">target: 4× H100</div>
+        </div>
+        <div class="dx-stat">
+          <div class="l">Spend / sec</div>
+          <div class="v" id="kRate">$0.0000</div>
+          <div class="d" id="kRateDelta">cap $5.00</div>
+        </div>
+        <div class="dx-stat">
+          <div class="l">P&amp;L</div>
+          <div class="v" id="kPnl">$0.000</div>
+          <div class="d" id="kPnlDelta">vs spot</div>
+        </div>
+      </div>
+
+      <div class="dx-actors">
+        <div class="dx-actor agent"><span class="badge">A</span><span class="nm">Agent</span><span class="sub">miner-01</span></div>
+        <div class="dx-actor psp"><span class="badge">P</span><span class="nm">PSP</span><span class="sub">visa-tap</span></div>
+        <div class="dx-actor res"><span class="badge">R</span><span class="nm">Resource</span><span class="sub">aether.gpu</span></div>
+      </div>
+
+      <div class="dx-mid">
+        <div class="dx-pane">
+          <h4>Hashrate · TH/s</h4>
+          <div class="dx-chart">
+            <svg viewBox="0 0 320 110" preserveAspectRatio="none">
+              <line x1="0" y1="92" x2="320" y2="92" stroke="rgba(0,0,0,0.10)" stroke-width="0.5"/>
+              <line x1="0" y1="61" x2="320" y2="61" stroke="rgba(0,0,0,0.10)" stroke-width="0.5" stroke-dasharray="2 3"/>
+              <line x1="0" y1="30" x2="320" y2="30" stroke="rgba(0,0,0,0.10)" stroke-width="0.5" stroke-dasharray="2 3"/>
+              <text class="dx-axis" x="3" y="11">10</text>
+              <text class="dx-axis" x="3" y="34">7</text>
+              <text class="dx-axis" x="3" y="65">3</text>
+              <text class="dx-axis" x="3" y="90">0</text>
+              <path id="dxArea" class="dx-area" d=""/>
+              <path id="dxLine" class="dx-line" d=""/>
+            </svg>
+          </div>
+          <h4 style="margin-top:10px">Active rigs</h4>
+          <div class="dx-fleet" id="dxFleet">
+            <div class="dx-rig" data-id="local"><span class="pin"></span><span>local-rig</span><span class="hash">0.08 TH/s</span></div>
+          </div>
+          <h4 style="margin-top:12px">Dynamic session card</h4>
+          <div class="dx-card" id="dxCard">
+            <div><span class="lbl">card  </span><span class="pen" id="cdNum">— derive on demand —</span></div>
+            <div><span class="lbl">token </span><span class="pen" id="cdTok">awaiting mint</span></div>
+            <div><span class="lbl">scope </span><span class="pen" id="cdScope">aether.gpu / $0.0026/s</span></div>
+          </div>
+        </div>
+
+        <div class="dx-pane">
+          <h4>Inter-actor traffic</h4>
+          <div class="dx-log" id="dxLog"></div>
+          <h4 style="margin-top:10px">MPP session · <span id="dxSessionId" style="font-family:var(--font-mono);color:var(--text-3);font-weight:400;text-transform:none;letter-spacing:0">—</span></h4>
+          <div class="dx-bar"><span id="dxBudgetBar"></span></div>
+          <div class="dx-bmeta">
+            <span id="dxSpent">spent $0.0000</span>
+            <span id="dxCap">cap $5.0000</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dx-rail" id="dxRail">
+      <h4>Protocol steps</h4>
+      <div class="dx-step" data-step="0">
+        <div class="num">1</div>
+        <div class="body"><div class="ttl">Detect shortfall</div><div class="desc"><span class="who-pill a">A</span>Below target hashrate</div></div>
+      </div>
+      <div class="dx-step" data-step="1">
+        <div class="num">2</div>
+        <div class="body"><div class="ttl">Find supply</div><div class="desc"><span class="who-pill a">A</span>→<span class="who-pill r">R</span>Query GPU market</div></div>
+      </div>
+      <div class="dx-step" data-step="2">
+        <div class="num">3</div>
+        <div class="body"><div class="ttl">402 challenge</div><div class="desc"><span class="who-pill r">R</span>→<span class="who-pill a">A</span>Payment required</div></div>
+      </div>
+      <div class="dx-step" data-step="3">
+        <div class="num">4</div>
+        <div class="body"><div class="ttl">Mint token</div><div class="desc"><span class="who-pill a">A</span>→<span class="who-pill p">P</span>One-time use</div></div>
+      </div>
+      <div class="dx-step" data-step="4">
+        <div class="num">5</div>
+        <div class="body"><div class="ttl">Submit token</div><div class="desc"><span class="who-pill a">A</span>→<span class="who-pill r">R</span>Retry with token</div></div>
+      </div>
+      <div class="dx-step" data-step="5">
+        <div class="num">6</div>
+        <div class="body"><div class="ttl">PSP verify</div><div class="desc"><span class="who-pill r">R</span>↔<span class="who-pill p">P</span>Authorize + receipt</div></div>
+      </div>
+      <div class="dx-step" data-step="6">
+        <div class="num">7</div>
+        <div class="body"><div class="ttl">Attach rigs</div><div class="desc"><span class="who-pill r">R</span>4× H100 join pool</div></div>
+      </div>
+      <div class="dx-step" data-step="7">
+        <div class="num">8</div>
+        <div class="body"><div class="ttl">Mine &amp; settle</div><div class="desc">Per-second metering</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="dx-foot">
+    <span>MPP · PSP-mediated · 0 human approvals</span>
+    <span class="dx-prog"><span id="dxProg"></span></span>
+    <span class="step" id="dxStep">0.0s / 30.0s</span>
+  </div>
+
+  <div class="dx-controls">
+    <button onclick="dxRestart()">Restart</button>
+    <button onclick="dxFull()">Fullscreen</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const phaseEl = document.getElementById('dxPhase');
+  const stepEl = document.getElementById('dxStep');
+  const progEl = document.getElementById('dxProg');
+  const kHash = document.getElementById('kHash');
+  const kHashDelta = document.getElementById('kHashDelta');
+  const kGpu = document.getElementById('kGpu');
+  const kGpuDelta = document.getElementById('kGpuDelta');
+  const kRate = document.getElementById('kRate');
+  const kRateDelta = document.getElementById('kRateDelta');
+  const kPnl = document.getElementById('kPnl');
+  const kPnlDelta = document.getElementById('kPnlDelta');
+  const lineEl = document.getElementById('dxLine');
+  const areaEl = document.getElementById('dxArea');
+  const fleetEl = document.getElementById('dxFleet');
+  const logEl = document.getElementById('dxLog');
+  const sessionEl = document.getElementById('dxSessionId');
+  const budgetBar = document.getElementById('dxBudgetBar');
+  const spentEl = document.getElementById('dxSpent');
+  const cdNum = document.getElementById('cdNum');
+  const cdTok = document.getElementById('cdTok');
+  const cdScope = document.getElementById('cdScope');
+  const stage = document.querySelector('.wrap');
+  const railSteps = document.querySelectorAll('.dx-step');
+
+  const TOTAL = 30.0;
+  const BUDGET = 5.00;
+  const RIGS = [
+    { id: 'gpu-h100-eu1', hash: 1.85 },
+    { id: 'gpu-h100-us2', hash: 1.92 },
+    { id: 'gpu-h100-sg1', hash: 1.81 },
+    { id: 'gpu-h100-eu3', hash: 1.89 },
+  ];
+
+  let t = 0, raf = 0;
+  let series = [0.08];
+  let gpus = 0, hash = 0.08, spent = 0, sessionStarted = false;
+  let lastEventIdx = -1;
+
+  const pad2 = n => String(n).padStart(2,'0');
+  const fmtTime = sec => pad2(Math.floor(sec)) + '.' + pad2(Math.floor((sec*100)%100));
+
+  const events = [
+    { t: 0.5,  who:'agent', msg: 'fleet: 0.08 TH/s — below 6.0 target', stepStart: 0 },
+    { t: 1.8,  who:'agent', msg: 'decision: rent 4x H100, max $5.00', stepDone: 0, stepStart: 1 },
+    { t: 3.0,  who:'agent', msg: 'GET aether.gpu/v1/offers?gpu=h100' },
+    { t: 4.0,  who:'res',   msg: '12 offers · best @ $2.35/hr · 38ms RTT' },
+    { t: 5.0,  who:'agent', msg: 'POST aether.gpu/v1/sessions {h100x4}', stepDone: 1, stepStart: 2 },
+    { t: 6.0,  who:'res',   msg: '&larr; 402 · realm="aether" amt="0.0026/s"' },
+    { t: 7.0,  who:'agent', msg: 'POST psp.visa-tap/tokens (one-time)', stepDone: 2, stepStart: 3 },
+    { t: 7.6,  who:'agent', msg: '  scope=aether.gpu  cap=$5.00', cardDeriving: true },
+    { t: 8.4,  who:'psp',   msg: 'derive session card from PAN-of-record', cardDerived: true },
+    { t: 9.4,  who:'psp',   msg: '&check; token mpp_tk_a8f2…ef91 issued (TTL 60s)', tokenMinted: true },
+    { t: 10.5, who:'agent', msg: '&rarr; Authorization: Payment mpp_tk_a8f2…', stepDone: 3, stepStart: 4 },
+    { t: 11.5, who:'res',   msg: 'received token · forwarding to PSP', stepDone: 4, stepStart: 5 },
+    { t: 12.5, who:'res',   msg: 'POST psp.visa-tap/verify {token, $0.0026/s}' },
+    { t: 13.5, who:'psp',   msg: 'verify · session card valid · funds ok' },
+    { t: 14.4, who:'psp',   msg: '&check; authorized · receipt rcpt_44b1c2', sessionId: 'sess_a8f2x' },
+    { t: 15.2, who:'res',   msg: '&check; 200 OK · session opened', stepDone: 5, stepStart: 6 },
+    { t: 16.2, who:'gpu',   msg: '&check; gpu-h100-eu1 spinning up', rig: 0 },
+    { t: 17.5, who:'gpu',   msg: '&check; gpu-h100-us2 attached',     rig: 1 },
+    { t: 18.8, who:'gpu',   msg: '&check; gpu-h100-sg1 streaming',    rig: 2 },
+    { t: 20.0, who:'gpu',   msg: '&check; gpu-h100-eu3 · 4 rigs live', rig: 3, stepDone: 6, stepStart: 7 },
+    { t: 22.0, who:'gpu',   msg: 'share accepted · diff 71.5T' },
+    { t: 24.5, who:'gpu',   msg: 'share accepted · diff 71.5T' },
+    { t: 26.5, who:'psp',   msg: 'mid-session settle · rcpt_44b2c3' },
+    { t: 28.5, who:'gpu',   msg: 'block found · payout queued' },
+  ];
+
+  function chartPath() {
+    const w = 320, base = 92, top = 6, max = 10;
+    const visible = series.slice(Math.max(0, series.length - 90));
+    const sw = w / Math.max(40, visible.length);
+    const pts = visible.map((y, i) => [i * sw, base - (y / max) * (base - top)]);
+    if (!pts.length) return ['',''];
+    const line = 'M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' L');
+    const area = line + ' L' + pts[pts.length-1][0].toFixed(1) + ' ' + base + ' L0 ' + base + ' Z';
+    return [line, area];
+  }
+
+  function addLog(who, msg) {
+    const ts = fmtTime(t);
+    const ln = document.createElement('div');
+    ln.className = 'ln';
+    const cls = who === 'gpu' ? 'gpu-msg' : (who + '-msg');
+    ln.innerHTML =
+      '<span class="ts">' + ts + 's</span>' +
+      '<span class="who ' + who + '">' + who[0].toUpperCase() + '</span>' +
+      '<span class="msg ' + cls + '">' + msg + '</span>';
+    logEl.appendChild(ln);
+    while (logEl.children.length > 8) logEl.removeChild(logEl.firstChild);
+  }
+
+  function activateRig(idx) {
+    const r = RIGS[idx];
+    const row = document.createElement('div');
+    row.className = 'dx-rig new live';
+    row.innerHTML =
+      '<span class="pin"></span>' +
+      '<span>' + r.id + '</span>' +
+      '<span class="hash">' + r.hash.toFixed(2) + ' TH/s</span>';
+    fleetEl.appendChild(row);
+    setTimeout(() => row.classList.remove('new'), 1100);
+    gpus += 1;
+    hash += r.hash;
+  }
+
+  function setStep(idx, state) {
+    const el = railSteps[idx];
+    if (!el) return;
+    el.classList.remove('active','done');
+    if (state) el.classList.add(state);
+  }
+
+  function applyEvents() {
+    for (let i = lastEventIdx + 1; i < events.length; i++) {
+      if (events[i].t <= t) {
+        const e = events[i];
+        addLog(e.who, e.msg);
+        if (typeof e.rig === 'number') activateRig(e.rig);
+        if (e.sessionId) { sessionEl.textContent = e.sessionId; sessionStarted = true; }
+        if (typeof e.stepDone === 'number') setStep(e.stepDone, 'done');
+        if (typeof e.stepStart === 'number') setStep(e.stepStart, 'active');
+        if (e.cardDeriving) {
+          cdNum.classList.remove('pen');
+          cdNum.style.color = 'var(--text-3)';
+          cdNum.textContent = 'deriving…';
+        }
+        if (e.cardDerived) {
+          cdNum.classList.remove('pen');
+          cdNum.style.color = 'var(--text)';
+          cdNum.textContent = '4242 •••• •••• 9f02';
+        }
+        if (e.tokenMinted) {
+          cdTok.classList.remove('pen');
+          cdTok.style.color = 'var(--ok)';
+          cdTok.textContent = 'mpp_tk_a8f2…ef91 (TTL 60s)';
+          cdScope.classList.remove('pen');
+          cdScope.style.color = 'var(--text)';
+        }
+        lastEventIdx = i;
+      } else break;
+    }
+  }
+
+  function setPhase() {
+    if (t < 2) phaseEl.textContent = 'fleet check';
+    else if (t < 5.5) phaseEl.textContent = 'querying market';
+    else if (t < 7) phaseEl.textContent = '402 received';
+    else if (t < 10) phaseEl.textContent = 'minting token';
+    else if (t < 12) phaseEl.textContent = 'submitting token';
+    else if (t < 16) phaseEl.textContent = 'PSP verifying';
+    else if (t < 20.5) phaseEl.textContent = 'spinning up';
+    else phaseEl.textContent = 'mining';
+  }
+
+  function tick() {
+    t += 1/30;
+    if (t > TOTAL + 1.5) {
+      setStep(7, 'done');
+      raf = requestAnimationFrame(tick);
+      return;
+    }
+    setPhase();
+    applyEvents();
+
+    if (sessionStarted) {
+      spent += 0.0026 * Math.min(gpus, 4) / 30;
+      if (spent > BUDGET) spent = BUDGET;
+    }
+
+    const recent = series[series.length - 1];
+    const next = recent + (hash - recent) * 0.18 + (Math.random() - 0.5) * 0.04 * Math.min(hash, 8);
+    series.push(Math.max(0, next));
+    if (series.length > 400) series.shift();
+    const [ln, ar] = chartPath();
+    lineEl.setAttribute('d', ln);
+    areaEl.setAttribute('d', ar);
+
+    const showHash = series[series.length - 1];
+    kHash.firstChild.textContent = showHash.toFixed(2) + ' ';
+    kHashDelta.textContent = sessionStarted ? ('+' + (showHash - 0.08).toFixed(2) + ' rented') : 'below target';
+    kGpu.textContent = gpus + (gpus ? ' rented' : '');
+    kGpuDelta.textContent = gpus < 4 ? 'target: 4x H100' : 'fleet at target';
+    const rps = sessionStarted ? 0.0026 * Math.min(gpus, 4) : 0;
+    kRate.textContent = '$' + rps.toFixed(4);
+    kRateDelta.textContent = sessionStarted ? ('= $' + (rps * 3600).toFixed(2) + '/hr') : 'cap $5.00';
+
+    const revPerSec = showHash * 0.000028;
+    const pnl = sessionStarted ? (revPerSec - rps) * Math.max(0, t - 15) : 0;
+    if (sessionStarted) {
+      kPnl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(3);
+      kPnl.classList.toggle('up', pnl >= 0);
+      kPnl.classList.toggle('dn', pnl < 0);
+      kPnlDelta.textContent = '24h proj $' + (pnl * 24 * 3600 / Math.max(t - 15, 1)).toFixed(2);
+    }
+
+    budgetBar.style.width = (spent / BUDGET * 100) + '%';
+    spentEl.textContent = 'spent $' + spent.toFixed(4);
+    stepEl.textContent = t.toFixed(1) + 's / 30.0s';
+    progEl.style.width = Math.min(100, (t / TOTAL * 100)) + '%';
+
+    raf = requestAnimationFrame(tick);
+  }
+
+  function reset() {
+    cancelAnimationFrame(raf);
+    t = 0; series = [0.08]; gpus = 0; hash = 0.08; spent = 0;
+    sessionStarted = false; lastEventIdx = -1;
+    fleetEl.innerHTML = '<div class="dx-rig" data-id="local"><span class="pin"></span><span>local-rig</span><span class="hash">0.08 TH/s</span></div>';
+    logEl.innerHTML = '';
+    sessionEl.textContent = '—';
+    kPnl.textContent = '$0.000'; kPnl.classList.remove('up','dn');
+    cdNum.textContent = '— derive on demand —'; cdNum.classList.add('pen'); cdNum.style.color='';
+    cdTok.textContent = 'awaiting mint'; cdTok.classList.add('pen'); cdTok.style.color='';
+    cdScope.textContent = 'aether.gpu / $0.0026/s'; cdScope.classList.add('pen'); cdScope.style.color='';
+    railSteps.forEach(s => s.classList.remove('active','done'));
+    raf = requestAnimationFrame(tick);
+  }
+
+  window.dxRestart = reset;
+  window.dxFull = () => stage.requestFullscreen ? stage.requestFullscreen() : (stage.webkitRequestFullscreen ? stage.webkitRequestFullscreen() : null);
+
+  raf = requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

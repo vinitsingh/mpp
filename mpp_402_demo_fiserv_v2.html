@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MPP Demo · HTTP 402 Machine Payment Flow</title>
+
+<style>
+:root{
+  --bg:#faf9f5;
+  --card:#ffffff;
+  --soft:#f3f1ea;
+  --border:rgba(0,0,0,.1);
+  --text:#1f1e1c;
+  --muted:#75726b;
+  --info:#4ea1ff;
+  --ok:#7ee787;
+  --warn:#f2cc60;
+  --danger:#ff8e8e;
+  --psp:#b392f0;
+  --radius:12px;
+  --mono: ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  padding:32px;
+}
+
+.wrap{
+  max-width:1200px;
+  margin:auto;
+}
+
+.header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px 18px;
+  border:1px solid var(--border);
+  border-bottom:none;
+  background:white;
+  border-radius:18px 18px 0 0;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.logo{
+  width:30px;
+  height:30px;
+  border-radius:8px;
+  background:#111;
+  color:white;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+}
+
+.status{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  color:var(--muted);
+}
+
+.dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--ok);
+  animation:pulse 1.3s infinite;
+}
+
+@keyframes pulse{
+  50%{opacity:.4}
+}
+
+.shell{
+  border:1px solid var(--border);
+  background:white;
+  display:grid;
+  grid-template-columns:1fr 280px;
+}
+
+.main{
+  border-right:1px solid var(--border);
+}
+
+.stats{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  border-bottom:1px solid var(--border);
+}
+
+.stat{
+  padding:16px;
+  border-right:1px solid var(--border);
+}
+
+.stat:last-child{
+  border-right:none;
+}
+
+.stat .label{
+  font-size:14px;
+  text-transform:uppercase;
+  color:var(--muted);
+  letter-spacing:.05em;
+}
+
+.stat .value{
+  margin-top:6px;
+  font-size:24px;
+  font-weight:700;
+}
+
+.stat .meta{
+  margin-top:6px;
+  font-size:11px;
+  color:var(--muted);
+}
+
+.actors{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  background:var(--soft);
+  border-bottom:1px solid var(--border);
+}
+
+.actor{
+  padding:12px 16px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border-right:1px solid var(--border);
+}
+
+.actor:last-child{
+  border-right:none;
+}
+
+.badge{
+  width:26px;
+  height:22px;
+  border-radius:6px;
+  color:white;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:11px;
+  font-weight:700;
+}
+
+.agent .badge{background:#4ea1ff}
+.psp .badge{background:var(--psp)}
+.res .badge{background:#f2a93b}
+
+.content{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+}
+
+.pane{
+  padding:18px;
+  border-right:1px solid var(--border);
+}
+
+.pane:last-child{
+  border-right:none;
+}
+
+h4{
+  margin:0 0 12px;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--muted);
+}
+
+.chart{
+  height:140px;
+  background:linear-gradient(to bottom,#eef5ff,#fff);
+  border-radius:14px;
+  border:1px solid rgba(0,0,0,.05);
+  margin-bottom:18px;
+  position:relative;
+  overflow:hidden;
+}
+
+.chart svg{
+  width:100%;
+  height:100%;
+}
+
+.rigs{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.rig{
+  padding:10px 12px;
+  border-radius:10px;
+  background:var(--soft);
+  display:flex;
+  justify-content:space-between;
+  font-family:var(--mono);
+  font-size:12px;
+}
+
+.log{
+  height:520px;
+  overflow:auto;
+  background:#050b14;
+  color:#e6edf3;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,.06);
+  padding:18px;
+  font-family:var(--mono);
+  font-size:11px;
+}
+
+.line{
+  display:grid;
+  grid-template-columns:72px 30px 1fr;
+  gap:8px;
+  margin-bottom:14px;
+  animation:fade .2s ease;
+}
+
+
+.line{
+  border-bottom:1px solid rgba(255,255,255,.04);
+  padding-bottom:8px;
+}
+
+@keyframes fade{
+  from{opacity:0;transform:translateY(4px)}
+  to{opacity:1}
+}
+
+.ts{color:#7d8590}
+
+.who{
+  width:22px;
+  height:20px;
+  border-radius:4px;
+  color:white;
+  font-size:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-weight:700;
+}
+
+.who.agent{background:#4ea1ff}
+.who.psp{background:#b392f0}
+.who.res{background:#f2a93b}
+.who.gpu{background:#2ea043}
+
+.msg.http{color:#8ab4ff}
+.msg.error{color:#ff8e8e}
+.msg.success{color:#7ee787}
+.msg.challenge{color:#f2cc60}
+
+.rail{
+  padding:18px 16px;
+}
+
+.step{
+  display:grid;
+  grid-template-columns:26px 1fr;
+  gap:10px;
+  margin-bottom:14px;
+}
+
+.num{
+  width:26px;
+  height:26px;
+  border-radius:50%;
+  background:#ece8de;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:12px;
+  font-weight:700;
+}
+
+.step.active .num{
+  background:#4ea1ff;
+  color:white;
+}
+
+.step.done .num{
+  background:#2ea043;
+  color:white;
+}
+
+.step .ttl{
+  font-weight:700;
+  font-size:13px;
+}
+
+.step .desc{
+  color:var(--muted);
+  font-size:11px;
+  margin-top:3px;
+}
+
+.footer{
+  border:1px solid var(--border);
+  border-top:none;
+  background:var(--soft);
+  border-radius:0 0 18px 18px;
+  padding:12px 18px;
+  display:flex;
+  justify-content:space-between;
+  font-size:12px;
+  color:var(--muted);
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<div class="header">
+  <div class="brand">
+    <div class="logo">M</div>
+    <div>
+      <div style="font-weight:700">miner-agent-01</div>
+      <div style="font-size:12px;color:#777">SHA-256 · pool=f2pool.btc</div>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="dot"></div>
+    <div id="phase">fleet check</div>
+  </div>
+</div>
+
+<div class="shell">
+
+<div class="main">
+
+<div class="stats">
+  <div class="stat">
+    <div class="label">Hashrate</div>
+    <div class="value" id="hashrate">0.08 TH/s</div>
+    <div class="meta" id="hashmeta">below target</div>
+  </div>
+
+  <div class="stat">
+    <div class="label">GPUs</div>
+    <div class="value" id="gpucount">0</div>
+    <div class="meta">target: 4× H100</div>
+  </div>
+
+  <div class="stat">
+    <div class="label">Spend/sec</div>
+    <div class="value" id="rate">$0.0000</div>
+    <div class="meta">Fiserv streaming settlement</div>
+  </div>
+
+  <div class="stat">
+    <div class="label">MPP Session</div>
+    <div class="value" id="session">—</div>
+    <div class="meta">Fiserv payment authorization</div>
+  </div>
+</div>
+
+<div class="actors">
+  <div class="actor agent">
+    <div class="badge">A</div>
+    <div><strong>Agent</strong><br><span style="font-size:11px;color:#777">miner-01</span></div>
+  </div>
+
+  <div class="actor psp">
+    <div class="badge">P</div>
+    <div><strong>Fiserv</strong><br><span style="font-size:11px;color:#777">Fiserv</span></div>
+  </div>
+
+  <div class="actor res">
+    <div class="badge">R</div>
+    <div><strong>Resource</strong><br><span style="font-size:11px;color:#777">aether.gpu</span></div>
+  </div>
+</div>
+
+<div class="content">
+
+<div class="pane">
+
+<h4>Realtime Hashrate</h4>
+
+<div class="chart">
+<svg viewBox="0 0 600 140">
+<path id="line" fill="none" stroke="#4ea1ff" stroke-width="3"></path>
+</svg>
+</div>
+
+<h4>Attached GPU Fleet</h4>
+
+<div class="rigs" id="rigs">
+  <div class="rig">
+    <span>local-rig</span>
+    <span>0.08 TH/s</span>
+  </div>
+</div>
+
+</div>
+
+<div class="pane">
+
+<h4>Inter‑Actor Traffic</h4>
+
+<div style="margin-bottom:10px;padding:10px 12px;background:#050b14;border-radius:10px;border:1px solid rgba(255,255,255,.08);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#7ee787;">
+● LIVE PROTOCOL TRACE · HTTP 402 MACHINE PAYMENT FLOW · FISERV DYNAMIC SESSION CARD RAILS
+</div>
+
+<div class="log" id="log"></div>
+
+</div>
+
+</div>
+
+</div>
+
+<div class="rail">
+
+<h4 style="margin-bottom:18px">Protocol Steps</h4>
+
+<div class="step" data-step="0">
+  <div class="num">1</div>
+  <div>
+    <div class="ttl">Detect shortfall</div>
+    <div class="desc">Agent identifies insufficient hashrate</div>
+  </div>
+</div>
+
+<div class="step" data-step="1">
+  <div class="num">2</div>
+  <div>
+    <div class="ttl">Discover supply</div>
+    <div class="desc">GPU marketplace queried</div>
+  </div>
+</div>
+
+<div class="step" data-step="2">
+  <div class="num">3</div>
+  <div>
+    <div class="ttl">HTTP 402 challenge</div>
+    <div class="desc">Payment required by resource</div>
+  </div>
+</div>
+
+<div class="step" data-step="3">
+  <div class="num">4</div>
+  <div>
+    <div class="ttl">Mint payment token</div>
+    <div class="desc">Fiserv derives scoped session token</div>
+  </div>
+</div>
+
+<div class="step" data-step="4">
+  <div class="num">5</div>
+  <div>
+    <div class="ttl">Retry authenticated request</div>
+    <div class="desc">Authorization: Payment</div>
+  </div>
+</div>
+
+<div class="step" data-step="5">
+  <div class="num">6</div>
+  <div>
+    <div class="ttl">Fiserv verification</div>
+    <div class="desc">Resource validates Fiserv payment token</div>
+  </div>
+</div>
+
+<div class="step" data-step="6">
+  <div class="num">7</div>
+  <div>
+    <div class="ttl">GPU cluster attached</div>
+    <div class="desc">4× H100 activated</div>
+  </div>
+</div>
+
+<div class="step" data-step="7">
+  <div class="num">8</div>
+  <div>
+    <div class="ttl">Streaming settlement</div>
+    <div class="desc">Per-second machine payment</div>
+  </div>
+</div>
+
+</div>
+
+</div>
+
+<div class="footer">
+  <span>MPP / HTTP 402 / Autonomous Commerce</span>
+  <span id="clock">0.0s</span>
+</div>
+
+</div>
+
+<script>
+const log = document.getElementById('log');
+const phase = document.getElementById('phase');
+const session = document.getElementById('session');
+const rigs = document.getElementById('rigs');
+const clock = document.getElementById('clock');
+const gpucount = document.getElementById('gpucount');
+const hashrate = document.getElementById('hashrate');
+const hashmeta = document.getElementById('hashmeta');
+const rate = document.getElementById('rate');
+
+const line = document.getElementById('line');
+
+const steps = document.querySelectorAll('.step');
+
+let t = 0;
+let idx = -1;
+let hash = 0.08;
+let gpus = 0;
+
+const events = [
+  {t:0.4,who:'agent',msg:'[telemetry] pool target=6.00TH/s current=0.08TH/s deficit=5.92TH/s',stepStart:0},
+  {t:1.2,who:'agent',msg:'[decision] local fleet insufficient → external GPU procurement required'},
+  {t:2.0,who:'agent',msg:'[policy] budget_cap=$5.00 max_latency=50ms preferred_gpu=H100',stepDone:0,stepStart:1},
+  {t:3.2,who:'agent',msg:'GET /v1/offers?gpu=H100&count=4 HTTP/1.1'},
+  {t:4.0,who:'res',msg:'HTTP/1.1 200 OK · 12 offers returned · best=$2.35/hr'},
+  {t:5.0,who:'agent',msg:'POST /v1/sessions { gpu:H100 qty:4 duration:auto }',stepDone:1,stepStart:2},
+  {t:6.0,who:'res',msg:'HTTP/1.1 402 Payment Required'},
+  {t:6.7,who:'res',msg:'Payment-Protocol: MPP/1.0'},
+  {t:7.3,who:'res',msg:'Payment-Requirements: rate=$0.0026/s token=psp-token ttl=60s'},
+  {t:8.0,who:'agent',msg:'[challenge] resource requires machine payment authorization',stepDone:2,stepStart:3},
+  {t:9.0,who:'agent',msg:'POST psp.Fiserv/tokens { scope:aether.gpu cap:$5.00 }'},
+  {t:10.0,who:'psp',msg:'[vault] deriving session card from PAN-of-record'},
+  {t:11.0,who:'psp',msg:'HTTP/1.1 201 Created · token=mpp_tk_a8f2…ef91 ttl=60s',stepDone:3,stepStart:4},
+  {t:12.0,who:'agent',msg:'POST /v1/sessions Authorization: Payment mpp_tk_a8f2…ef91'},
+  {t:13.0,who:'res',msg:'[relay] forwarding token to Fiserv verify endpoint',stepDone:4,stepStart:5},
+  {t:14.0,who:'psp',msg:'verify(token=mpp_tk_a8f2…ef91 amount=$0.0026/s scope=aether.gpu)'},
+  {t:15.0,who:'psp',msg:'HTTP/1.1 200 Authorized · receipt=rcpt_44b1c2',session:'sess_a8f2x'},
+  {t:16.0,who:'res',msg:'HTTP/1.1 200 OK · GPU session opened',stepDone:5,stepStart:6},
+  {t:17.0,who:'gpu',msg:'[allocator] gpu-h100-eu1 attached',rig:'gpu-h100-eu1',power:1.85},
+  {t:18.0,who:'gpu',msg:'[allocator] gpu-h100-us2 attached',rig:'gpu-h100-us2',power:1.92},
+  {t:19.0,who:'gpu',msg:'[allocator] gpu-h100-sg1 attached',rig:'gpu-h100-sg1',power:1.81},
+  {t:20.0,who:'gpu',msg:'[allocator] gpu-h100-eu3 attached · cluster ready',rig:'gpu-h100-eu3',power:1.89,stepDone:6,stepStart:7},
+  {t:22.0,who:'gpu',msg:'[mining] share accepted diff=71.5T'},
+  {t:25.0,who:'psp',msg:'[settlement] streamed payment=$0.184 receipt=rcpt_44b2c3'},
+  {t:28.0,who:'gpu',msg:'[pool] block found · payout queued'}
+];
+
+function addLog(who,msg){
+  const row = document.createElement('div');
+  row.className = 'line';
+
+  let semantic = '';
+
+  if(msg.includes('402')) semantic='error';
+  else if(msg.includes('200 OK') || msg.includes('Authorized')) semantic='success';
+  else if(msg.includes('Payment-Requirements')) semantic='challenge';
+  else if(msg.includes('HTTP')) semantic='http';
+
+  row.innerHTML = `
+    <div class="ts">${t.toFixed(1)}s</div>
+    <div class="who ${who}">${who[0].toUpperCase()}</div>
+    <div class="msg ${semantic}">${msg}</div>
+  `;
+
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+
+function setStep(i,state){
+  const el = steps[i];
+  if(!el) return;
+
+  el.classList.remove('active','done');
+
+  if(state) el.classList.add(state);
+}
+
+function drawChart(){
+  const pts = [];
+
+  for(let i=0;i<60;i++){
+    const x = i * 10;
+    const y = 120 - ((Math.sin(i/8)+1)/2 * hash * 10);
+    pts.push(`${x},${y}`);
+  }
+
+  line.setAttribute('d','M'+pts.join(' L'));
+}
+
+function tick(){
+  t += 0.04;
+
+  clock.textContent = t.toFixed(1) + 's';
+
+  if(t < 3) phase.textContent = 'detecting hashrate deficit';
+  else if(t < 6) phase.textContent = 'querying GPU market';
+  else if(t < 9) phase.textContent = 'HTTP 402 challenge';
+  else if(t < 12) phase.textContent = 'Fiserv tokenization';
+  else if(t < 16) phase.textContent = 'Fiserv verification';
+  else if(t < 21) phase.textContent = 'allocating GPU cluster';
+  else phase.textContent = 'Fiserv streaming settlement';
+
+  for(let i=idx+1;i<events.length;i++){
+    if(events[i].t <= t){
+
+      const e = events[i];
+
+      addLog(e.who,e.msg);
+
+      if(e.stepDone !== undefined){
+        setStep(e.stepDone,'done');
+      }
+
+      if(e.stepStart !== undefined){
+        setStep(e.stepStart,'active');
+      }
+
+      if(e.session){
+        session.textContent = e.session;
+      }
+
+      if(e.rig){
+        gpus++;
+
+        const div = document.createElement('div');
+        div.className = 'rig';
+        div.innerHTML = `<span>${e.rig}</span><span>${e.power.toFixed(2)} TH/s</span>`;
+        rigs.appendChild(div);
+
+        hash += e.power;
+      }
+
+      idx = i;
+    }
+  }
+
+  gpucount.textContent = gpus;
+  hashrate.textContent = hash.toFixed(2) + ' TH/s';
+
+  if(gpus){
+    hashmeta.textContent = '+' + (hash - 0.08).toFixed(2) + ' TH/s rented';
+    rate.textContent = '$' + (0.0026 * gpus).toFixed(4);
+  }
+
+  drawChart();
+
+  requestAnimationFrame(tick);
+}
+
+tick();
+</script>
+
+</body>
+</html>
